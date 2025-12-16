@@ -1,0 +1,45 @@
+use std::env;
+
+/// Application configuration loaded from environment variables
+#[derive(Debug, Clone)]
+pub struct Config {
+    // Server
+    pub host: String,
+    pub port: u16,
+
+    // Supabase (anon key only - RLS enabled)
+    pub supabase_url: String,
+    pub supabase_anon_key: String,
+    pub supabase_jwt_secret: String,
+
+    // Gemini
+    pub gemini_api_key: String,
+    pub gemini_model: String,
+}
+
+impl Config {
+    /// Load configuration from environment variables
+    pub fn from_env() -> anyhow::Result<Self> {
+        Ok(Self {
+            // Server
+            host: env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
+            port: env::var("PORT")
+                .unwrap_or_else(|_| "8080".to_string())
+                .parse()?,
+
+            // Supabase (anon key only)
+            supabase_url: env::var("SUPABASE_URL")
+                .map_err(|_| anyhow::anyhow!("SUPABASE_URL is required"))?,
+            supabase_anon_key: env::var("SUPABASE_ANON_KEY")
+                .map_err(|_| anyhow::anyhow!("SUPABASE_ANON_KEY is required"))?,
+            supabase_jwt_secret: env::var("SUPABASE_JWT_SECRET")
+                .map_err(|_| anyhow::anyhow!("SUPABASE_JWT_SECRET is required"))?,
+
+            // Gemini
+            gemini_api_key: env::var("GEMINI_API_KEY")
+                .map_err(|_| anyhow::anyhow!("GEMINI_API_KEY is required"))?,
+            gemini_model: env::var("GEMINI_MODEL")
+                .unwrap_or_else(|_| "gemini-1.5-flash".to_string()),
+        })
+    }
+}

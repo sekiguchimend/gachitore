@@ -1,0 +1,58 @@
+name: gachitore
+description: "AIパーソナルトレーナーアプリ - ガチトレ"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Navigation
+  go_router: ^14.6.2
+
+  # State Management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Network
+  dio: ^5.7.0
+
+  # Local Storage
+  shared_preferences: ^2.3.3
+  flutter_secure_storage: ^9.2.2
+
+  # Utils
+  intl: ^0.19.0
+  uuid: ^4.5.1
+
+  # UI
+  flutter_svg: ^2.0.10+1
+  cached_network_image: ^3.4.1
+  shimmer: ^3.0.0
+
+  # Camera/Image
+  camera: ^0.11.0+2
+  image_picker: ^1.1.2
+
+  # Charts
+  fl_chart: ^0.69.0
+
+  # Fonts
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  build_runner: ^2.4.13
+  riverpod_generator: ^2.6.2
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/icons/
