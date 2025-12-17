@@ -21,6 +21,30 @@ class _MusclePageState extends ConsumerState<MusclePage>
 
   final List<String> _muscleGroups = ['すべて', '胸', '背中', '肩', '腕', '脚', 'コア'];
 
+  // データベースの英語→日本語マッピング
+  static const Map<String, String> _muscleEnToJa = {
+    'chest': '胸',
+    'back': '背中',
+    'shoulder': '肩',
+    'biceps': '腕',
+    'triceps': '腕',
+    'quadriceps': '脚',
+    'hamstrings': '脚',
+    'glutes': '脚',
+    'calves': '脚',
+    'abs': 'コア',
+  };
+
+  // 日本語→英語のリスト（フィルタリング用）
+  static const Map<String, List<String>> _muscleJaToEn = {
+    '胸': ['chest'],
+    '背中': ['back'],
+    '肩': ['shoulder'],
+    '腕': ['biceps', 'triceps'],
+    '脚': ['quadriceps', 'hamstrings', 'glutes', 'calves'],
+    'コア': ['abs'],
+  };
+
   List<Exercise> _exercises = [];
   List<WorkoutSession> _recentWorkouts = [];
 
@@ -83,10 +107,17 @@ class _MusclePageState extends ConsumerState<MusclePage>
     super.dispose();
   }
 
+  // 記録済みの種目のみを取得（lastWeightまたはlastRepsが0より大きい）
+  List<Exercise> get _recordedExercises {
+    return _exercises.where((e) => e.lastWeight > 0 || e.lastReps > 0).toList();
+  }
+
   List<Exercise> get _filteredExercises {
-    if (_selectedMuscleGroup == 0) return _exercises;
+    final recorded = _recordedExercises;
+    if (_selectedMuscleGroup == 0) return recorded;
     final group = _muscleGroups[_selectedMuscleGroup];
-    return _exercises.where((e) => e.muscleGroup == group).toList();
+    final targetMuscles = _muscleJaToEn[group] ?? [];
+    return recorded.where((e) => targetMuscles.contains(e.muscleGroup)).toList();
   }
 
   @override
@@ -278,24 +309,39 @@ class _MusclePageState extends ConsumerState<MusclePage>
                 )
               : _filteredExercises.isEmpty
                   ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.fitness_center,
-                            size: 48,
-                            color: AppColors.textTertiary,
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'まだトレーニング記録がありません',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textSecondary,
+                      child: Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.fitness_center,
+                              size: 48,
+                              color: AppColors.textTertiary,
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 16),
+                            Text(
+                              _selectedMuscleGroup == 0
+                                  ? 'まだトレーニング記録がありません'
+                                  : 'この部位の記録がありません',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              '下の「ワークアウト開始」ボタンから\n種目を記録しましょう',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.textTertiary,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     )
                   : RefreshIndicator(
@@ -665,6 +711,7 @@ class _MusclePageState extends ConsumerState<MusclePage>
                       '空のワークアウト',
                       '種目を自由に追加',
                       Icons.add_circle_outline,
+                      isEmpty: true,
                     ),
                     _buildWorkoutTemplate(
                       '胸・三頭',
@@ -706,11 +753,15 @@ class _MusclePageState extends ConsumerState<MusclePage>
     );
   }
 
-  Widget _buildWorkoutTemplate(String name, String description, IconData icon) {
+  Widget _buildWorkoutTemplate(String name, String description, IconData icon, {bool isEmpty = false}) {
     return GestureDetector(
       onTap: () {
         Navigator.pop(context);
-        // TODO: Start workout with template
+        if (isEmpty) {
+          _showExerciseSelectionSheet();
+        } else {
+          // TODO: Start workout with template
+        }
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -768,6 +819,218 @@ class _MusclePageState extends ConsumerState<MusclePage>
     );
   }
 
+  void _showExerciseSelectionSheet() {
+    int selectedFilter = 0;
+    String searchQuery = '';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.bgCard,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          // フィルタリング: 検索 + 部位
+          List<Exercise> filtered = _exercises;
+          
+          if (searchQuery.isNotEmpty) {
+            filtered = filtered.where((e) => 
+              e.name.toLowerCase().contains(searchQuery.toLowerCase())
+            ).toList();
+          }
+          
+          if (selectedFilter > 0) {
+            final group = _muscleGroups[selectedFilter];
+            final targetMuscles = _muscleJaToEn[group] ?? [];
+            filtered = filtered.where((e) => targetMuscles.contains(e.muscleGroup)).toList();
+          }
+
+          return DraggableScrollableSheet(
+            initialChildSize: 0.9,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            expand: false,
+            builder: (context, scrollController) => Column(
+              children: [
+                // Header
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: AppColors.border,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          const Text(
+                            '種目を選択',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      // 検索バー
+                      TextField(
+                        onChanged: (value) => setSheetState(() => searchQuery = value),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: AppColors.textPrimary,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: '種目を検索...',
+                          hintStyle: TextStyle(color: AppColors.textTertiary),
+                          prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
+                          filled: true,
+                          fillColor: AppColors.bgSub,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // 部位フィルター
+                SizedBox(
+                  height: 40,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: _muscleGroups.length,
+                    itemBuilder: (context, index) {
+                      final isSelected = selectedFilter == index;
+                      return GestureDetector(
+                        onTap: () => setSheetState(() => selectedFilter = index),
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          decoration: BoxDecoration(
+                            color: isSelected ? AppColors.greenPrimary : AppColors.bgSub,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            _muscleGroups[index],
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: isSelected ? AppColors.textPrimary : AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // 種目リスト
+                Expanded(
+                  child: filtered.isEmpty
+                      ? Center(
+                          child: Text(
+                            '種目が見つかりません',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: scrollController,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: filtered.length,
+                          itemBuilder: (context, index) {
+                            final exercise = filtered[index];
+                            return GestureDetector(
+                              onTap: () {
+                                Navigator.pop(context);
+                                _showLogSetSheet(exercise);
+                              },
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: AppColors.bgSub,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        color: AppColors.greenPrimary.withOpacity(0.15),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: const Icon(
+                                        Icons.fitness_center,
+                                        color: AppColors.greenPrimary,
+                                        size: 20,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            exercise.name,
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                              color: AppColors.textPrimary,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            _muscleEnToJa[exercise.muscleGroup] ?? exercise.muscleGroup,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                              color: AppColors.textTertiary,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.chevron_right,
+                                      color: AppColors.textTertiary,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _showExerciseDetail(Exercise exercise) {
     showModalBottomSheet(
       context: context,
@@ -802,7 +1065,7 @@ class _MusclePageState extends ConsumerState<MusclePage>
             ),
             const SizedBox(height: 8),
             Text(
-              exercise.muscleGroup,
+              _muscleEnToJa[exercise.muscleGroup] ?? exercise.muscleGroup,
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,

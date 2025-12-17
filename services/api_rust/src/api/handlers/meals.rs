@@ -3,6 +3,7 @@ use axum::{
     Extension, Json,
 };
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{
     api::middleware::AuthUser,
@@ -17,6 +18,35 @@ use crate::{
 #[derive(Debug, Deserialize)]
 pub struct DateQuery {
     pub date: String, // YYYY-MM-DD
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LogMealRequest {
+    pub date: String,
+    pub time: Option<String>,
+    pub meal_type: String,
+    pub meal_index: Option<i32>,
+    pub note: Option<String>,
+    pub photo_url: Option<String>,
+    pub items: Vec<LogMealItemRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LogMealItemRequest {
+    pub name: String,
+    pub quantity: Option<f64>,
+    pub unit: Option<String>,
+    pub calories: Option<i32>,
+    pub protein_g: Option<f64>,
+    pub fat_g: Option<f64>,
+    pub carbs_g: Option<f64>,
+    pub fiber_g: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LogMealResponse {
+    pub meal_id: String,
+    pub message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -170,5 +200,122 @@ pub async fn delete_meal(
 
     Ok(Json(MessageResponse {
         message: "Meal deleted successfully".to_string(),
+    }))
+}
+
+/// POST /log/meal - Log a meal
+pub async fn log_meal(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
+    Json(req): Json<LogMealRequest>,
+) -> AppResult<Json<LogMealResponse>> {
+    let meal_id = Uuid::new_v4().to_string();
+
+    // Insert meal
+    let meal_data = serde_json::json!({
+        "id": meal_id,
+        "user_id": user.user_id,
+        "date": req.date,
+        "time": req.time,
+        "meal_type": req.meal_type,
+        "meal_index": req.meal_index.unwrap_or(1),
+        "note": req.note,
+        "photo_url": req.photo_url
+    });
+
+    let _: serde_json::Value = state
+        .supabase
+        .insert("meals", &meal_data, &user.token)
+        .await?;
+
+    // Insert meal items
+    let mut total_calories = 0i32;
+    let mut total_protein = 0.0f64;
+    let mut total_fat = 0.0f64;
+    let mut total_carbs = 0.0f64;
+    let mut total_fiber = 0.0f64;
+
+    for item in &req.items {
+        let item_data = serde_json::json!({
+            "id": Uuid::new_v4().to_string(),
+            "meal_id": meal_id,
+            "name": item.name,
+            "quantity": item.quantity.unwrap_or(1.0),
+            "unit": item.unit.clone().unwrap_or_else(|| "serving".to_string()),
+            "calories": item.calories.unwrap_or(0),
+            "protein_g": item.protein_g.unwrap_or(0.0),
+            "fat_g": item.fat_g.unwrap_or(0.0),
+            "carbs_g": item.carbs_g.unwrap_or(0.0),
+            "fiber_g": item.fiber_g.unwrap_or(0.0)
+        });
+
+        let _: serde_json::Value = state
+            .supabase
+            .insert("meal_items", &item_data, &user.token)
+            .await?;
+
+        // Accumulate totals
+        total_calories += item.calories.unwrap_or(0);
+        total_protein += item.protein_g.unwrap_or(0.0);
+        total_fat += item.fat_g.unwrap_or(0.0);
+        total_carbs += item.carbs_g.unwrap_or(0.0);
+        total_fiber += item.fiber_g.unwrap_or(0.0);
+    }
+
+    // Update or insert nutrition_daily
+    let nutrition_query = format!(
+        "user_id=eq.{}&date=eq.{}",
+        user.user_id, req.date
+    );
+    let existing_nutrition: Vec<serde_json::Value> = state
+        .supabase
+        .select("nutrition_daily", &nutrition_query, &user.token)
+        .await?;
+
+    if let Some(existing) = existing_nutrition.into_iter().next() {
+        // Update existing
+        let new_calories = existing["calories"].as_i64().unwrap_or(0) as i32 + total_calories;
+        let new_protein = existing["protein_g"].as_f64().unwrap_or(0.0) + total_protein;
+        let new_fat = existing["fat_g"].as_f64().unwrap_or(0.0) + total_fat;
+        let new_carbs = existing["carbs_g"].as_f64().unwrap_or(0.0) + total_carbs;
+        let new_fiber = existing["fiber_g"].as_f64().unwrap_or(0.0) + total_fiber;
+        let new_meals = existing["meals_logged"].as_i64().unwrap_or(0) as i32 + 1;
+
+        let update_data = serde_json::json!({
+            "calories": new_calories,
+            "protein_g": new_protein,
+            "fat_g": new_fat,
+            "carbs_g": new_carbs,
+            "fiber_g": new_fiber,
+            "meals_logged": new_meals,
+            "updated_at": chrono::Utc::now().to_rfc3339()
+        });
+
+        state
+            .supabase
+            .update("nutrition_daily", &nutrition_query, &update_data, &user.token)
+            .await?;
+    } else {
+        // Insert new
+        let nutrition_data = serde_json::json!({
+            "user_id": user.user_id,
+            "date": req.date,
+            "calories": total_calories,
+            "protein_g": total_protein,
+            "fat_g": total_fat,
+            "carbs_g": total_carbs,
+            "fiber_g": total_fiber,
+            "meals_logged": 1
+        });
+
+        let _: serde_json::Value = state
+            .supabase
+            .insert("nutrition_daily", &nutrition_data, &user.token)
+            .await?;
+    }
+
+    Ok(Json(LogMealResponse {
+        meal_id,
+        message: "Meal logged successfully".to_string(),
     }))
 }

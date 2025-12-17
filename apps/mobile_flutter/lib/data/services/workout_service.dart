@@ -38,9 +38,9 @@ class WorkoutService {
 
       return (response.data as List).map((e) {
         return Exercise(
-          id: e['id'],
-          name: e['name'],
-          muscleGroup: (e['primary_muscles'] as List?)?.first ?? '',
+          id: e['id'] ?? '',
+          name: e['name'] ?? '',
+          muscleGroup: e['primary_muscle'] ?? '',  // 単数形に修正
           e1rm: 0,
           lastWeight: 0,
           lastReps: 0,

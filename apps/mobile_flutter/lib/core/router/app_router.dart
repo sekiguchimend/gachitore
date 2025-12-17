@@ -39,18 +39,19 @@ class AppRouter {
     initialLocation: '/login',
     refreshListenable: authNotifier,
     redirect: (context, state) async {
-      // Check auth status
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('access_token');
-      final isLoggedIn = token != null;
-      final isAuthRoute = state.uri.path == '/login' || state.uri.path == '/setup';
+      final path = state.uri.path;
 
-      if (!isLoggedIn && !isAuthRoute) {
-        return '/login';
+      // Login and setup pages - no redirect needed
+      if (path == '/login' || path == '/setup') {
+        return null;
       }
 
-      if (isLoggedIn && state.uri.path == '/login') {
-        return '/home';
+      // Check auth for protected routes
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('access_token');
+
+      if (token == null) {
+        return '/login';
       }
 
       return null;

@@ -9,6 +9,23 @@ use crate::{
 };
 
 // =============================================================================
+// Update Profile Request
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateProfileRequest {
+    pub display_name: Option<String>,
+    pub goal: Option<String>,
+    pub training_level: Option<String>,
+    pub sex: Option<String>,
+    pub height_cm: Option<i32>,
+    pub birth_year: Option<i32>,
+    pub weight_kg: Option<f64>,
+    pub environment: Option<serde_json::Value>,
+    pub constraints: Option<serde_json::Value>,
+}
+
+// =============================================================================
 // Request/Response DTOs
 // =============================================================================
 
@@ -187,5 +204,71 @@ pub async fn complete_onboarding(
 
     Ok(Json(MessageResponse {
         message: "Onboarding completed successfully".to_string(),
+    }))
+}
+
+/// PATCH /users/profile
+pub async fn update_profile(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
+    Json(req): Json<UpdateProfileRequest>,
+) -> AppResult<Json<MessageResponse>> {
+    let now = chrono::Utc::now();
+    let today = now.format("%Y-%m-%d").to_string();
+
+    // Build profile update data (only include fields that are provided)
+    let mut profile_updates = serde_json::Map::new();
+    profile_updates.insert("user_id".to_string(), serde_json::json!(user.user_id));
+    profile_updates.insert("updated_at".to_string(), serde_json::json!(now.to_rfc3339()));
+
+    if let Some(display_name) = &req.display_name {
+        profile_updates.insert("display_name".to_string(), serde_json::json!(display_name));
+    }
+    if let Some(goal) = &req.goal {
+        profile_updates.insert("goal".to_string(), serde_json::json!(goal));
+    }
+    if let Some(training_level) = &req.training_level {
+        profile_updates.insert("training_level".to_string(), serde_json::json!(training_level));
+    }
+    if let Some(sex) = &req.sex {
+        profile_updates.insert("sex".to_string(), serde_json::json!(sex));
+    }
+    if let Some(height_cm) = req.height_cm {
+        profile_updates.insert("height_cm".to_string(), serde_json::json!(height_cm));
+    }
+    if let Some(birth_year) = req.birth_year {
+        profile_updates.insert("birth_year".to_string(), serde_json::json!(birth_year));
+    }
+    if let Some(environment) = &req.environment {
+        profile_updates.insert("environment".to_string(), environment.clone());
+    }
+    if let Some(constraints) = &req.constraints {
+        profile_updates.insert("constraints".to_string(), constraints.clone());
+    }
+
+    let profile_data = serde_json::Value::Object(profile_updates);
+
+    // Upsert user profile
+    state
+        .supabase
+        .upsert("user_profiles", &profile_data, "user_id", &user.token)
+        .await?;
+
+    // If weight is provided, also update body_metrics
+    if let Some(weight_kg) = req.weight_kg {
+        let metrics_data = serde_json::json!({
+            "user_id": user.user_id,
+            "date": today,
+            "weight_kg": weight_kg
+        });
+
+        state
+            .supabase
+            .upsert("body_metrics", &metrics_data, "user_id,date", &user.token)
+            .await?;
+    }
+
+    Ok(Json(MessageResponse {
+        message: "Profile updated successfully".to_string(),
     }))
 }

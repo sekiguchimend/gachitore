@@ -166,7 +166,9 @@ class AuthService {
     required int age,
     required String sex,
     String? environment,
+    List<String>? equipment,
     List<String>? constraints,
+    int? mealsPerDay,
   }) async {
     // DEBUG: Check token before request
     final prefs = await _getPrefs();
@@ -174,19 +176,34 @@ class AuthService {
     print('[AuthService] completeOnboarding - Token from storage: ${token != null ? "present (${token.length} chars)" : "NULL!!!"}');
     final apiToken = await _apiClient.getToken();
     print('[AuthService] completeOnboarding - Token from ApiClient: ${apiToken != null ? "present (${apiToken.length} chars)" : "NULL!!!"}');
+
+    // 生年を計算 (DBはbirth_yearを期待)
+    final birthYear = DateTime.now().year - age;
+
+    // environmentをJSONB形式に変換
+    final Map<String, dynamic> environmentJson = {
+      'gym': environment == 'gym' || environment == 'both',
+      'home': environment == 'home' || environment == 'both',
+      'equipment': equipment ?? [],
+    };
+
+    // constraintsをJSONB形式に変換
+    final List<Map<String, dynamic>> constraintsJson = (constraints ?? [])
+        .map((c) => {'part': c, 'severity': 'mild'})
+        .toList();
     
     try {
       await _apiClient.post(
         '/users/onboarding/complete',
         data: {
           'goal': goal,
-          'level': level,
-          'weight': weight,
-          'height': height,
-          'age': age,
+          'training_level': level,  // DBカラム名に合わせる
+          'height_cm': height.round(),  // DBカラム名に合わせる
+          'birth_year': birthYear,  // DBカラム名に合わせる
           'sex': sex,
-          'environment': environment ?? 'gym',
-          'constraints': constraints ?? [],
+          'environment': environmentJson,  // JSONB形式
+          'constraints': constraintsJson,  // JSONB形式
+          'meals_per_day': mealsPerDay ?? 3,
         },
       );
     } on DioException catch (e) {
@@ -201,6 +218,37 @@ class AuthService {
       return response.data;
     } catch (e) {
       return null;
+    }
+  }
+
+  // Update user profile
+  Future<void> updateProfile({
+    String? displayName,
+    String? goal,
+    String? trainingLevel,
+    String? sex,
+    int? heightCm,
+    int? birthYear,
+    double? weightKg,
+    Map<String, dynamic>? environment,
+    List<Map<String, dynamic>>? constraints,
+  }) async {
+    final data = <String, dynamic>{};
+    
+    if (displayName != null) data['display_name'] = displayName;
+    if (goal != null) data['goal'] = goal;
+    if (trainingLevel != null) data['training_level'] = trainingLevel;
+    if (sex != null) data['sex'] = sex;
+    if (heightCm != null) data['height_cm'] = heightCm;
+    if (birthYear != null) data['birth_year'] = birthYear;
+    if (weightKg != null) data['weight_kg'] = weightKg;
+    if (environment != null) data['environment'] = environment;
+    if (constraints != null) data['constraints'] = constraints;
+
+    try {
+      await _apiClient.patch('/users/profile', data: data);
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
     }
   }
 

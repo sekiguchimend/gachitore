@@ -1,6 +1,6 @@
 use axum::{
     middleware,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 
@@ -17,6 +17,10 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         // Protected routes (auth required)
         .nest("/users", users_routes(state.clone()))
         .nest("/meals", meals_routes(state.clone()))
+        .nest("/exercises", exercises_routes(state.clone()))
+        .nest("/workouts", workouts_routes(state.clone()))
+        .nest("/dashboard", dashboard_routes(state.clone()))
+        .nest("/log", log_routes(state.clone()))
         .nest("/ai", ai_routes(state.clone()))
 }
 
@@ -38,7 +42,7 @@ fn auth_routes() -> Router<AppState> {
 /// /v1/users/* routes (auth required)
 fn users_routes(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/profile", get(handlers::get_profile))
+        .route("/profile", get(handlers::get_profile).patch(handlers::update_profile))
         .route("/onboarding/status", get(handlers::get_onboarding_status))
         .route("/onboarding/complete", post(handlers::complete_onboarding))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
@@ -50,6 +54,38 @@ fn meals_routes(state: AppState) -> Router<AppState> {
         .route("/", get(handlers::get_meals))
         .route("/nutrition", get(handlers::get_nutrition))
         .route("/:id", delete(handlers::delete_meal))
+        .route_layer(middleware::from_fn_with_state(state, auth_middleware))
+}
+
+/// /v1/exercises/* routes (auth required)
+fn exercises_routes(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/", get(handlers::get_exercises))
+        .route("/stats", get(handlers::get_exercises_with_stats))
+        .route_layer(middleware::from_fn_with_state(state, auth_middleware))
+}
+
+/// /v1/workouts/* routes (auth required)
+fn workouts_routes(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/", get(handlers::get_workouts))
+        .route("/:id", get(handlers::get_workout_detail))
+        .route_layer(middleware::from_fn_with_state(state, auth_middleware))
+}
+
+/// /v1/dashboard/* routes (auth required)
+fn dashboard_routes(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/today", get(handlers::get_dashboard))
+        .route_layer(middleware::from_fn_with_state(state, auth_middleware))
+}
+
+/// /v1/log/* routes (auth required) - for logging data
+fn log_routes(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/workout", post(handlers::log_workout))
+        .route("/meal", post(handlers::log_meal))
+        .route("/metrics", post(handlers::log_metrics))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 

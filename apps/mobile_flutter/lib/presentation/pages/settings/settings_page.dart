@@ -43,6 +43,43 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
   }
 
+  Future<void> _updateProfile({
+    String? goal,
+    String? trainingLevel,
+    double? weightKg,
+    int? heightCm,
+    int? birthYear,
+  }) async {
+    try {
+      final authService = ref.read(authServiceProvider);
+      await authService.updateProfile(
+        goal: goal,
+        trainingLevel: trainingLevel,
+        weightKg: weightKg,
+        heightCm: heightCm,
+        birthYear: birthYear,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('保存しました'),
+            backgroundColor: AppColors.greenPrimary,
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('保存に失敗しました: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -486,10 +523,25 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   void _showGoalPicker() {
     _showPickerSheet(
       '目標を選択',
-      ['筋肥大', '減量', '維持', 'パワー向上', '健康増進'],
+      ['筋肥大', '減量', 'パワー向上', '健康維持'],
       _user?.goal ?? '',
-      (value) {
-        // TODO: Update goal
+      (value) async {
+        // 日本語→英語変換してAPIに送信
+        final goalEnValue = UserProfile._goalJaToEn[value] ?? 'hypertrophy';
+        await _updateProfile(goal: goalEnValue);
+        if (mounted && _user != null) {
+          setState(() {
+            _user = UserProfile(
+              name: _user!.name,
+              email: _user!.email,
+              goal: value,
+              level: _user!.level,
+              weight: _user!.weight,
+              height: _user!.height,
+              age: _user!.age,
+            );
+          });
+        }
       },
     );
   }
@@ -499,8 +551,23 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       'トレーニングレベル',
       ['初心者', '中級者', '上級者'],
       _user?.level ?? '',
-      (value) {
-        // TODO: Update level
+      (value) async {
+        // 日本語→英語変換してAPIに送信
+        final levelEnValue = UserProfile._levelJaToEn[value] ?? 'beginner';
+        await _updateProfile(trainingLevel: levelEnValue);
+        if (mounted && _user != null) {
+          setState(() {
+            _user = UserProfile(
+              name: _user!.name,
+              email: _user!.email,
+              goal: _user!.goal,
+              level: value,
+              weight: _user!.weight,
+              height: _user!.height,
+              age: _user!.age,
+            );
+          });
+        }
       },
     );
   }
@@ -620,20 +687,23 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       suffix: 'kg',
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      onSave: (value) {
+      onSave: (value) async {
         final weight = double.tryParse(value);
         if (weight != null && _user != null) {
-          setState(() {
-            _user = UserProfile(
-              name: _user!.name,
-              email: _user!.email,
-              goal: _user!.goal,
-              level: _user!.level,
-              weight: weight,
-              height: _user!.height,
-              age: _user!.age,
-            );
-          });
+          await _updateProfile(weightKg: weight);
+          if (mounted) {
+            setState(() {
+              _user = UserProfile(
+                name: _user!.name,
+                email: _user!.email,
+                goal: _user!.goal,
+                level: _user!.level,
+                weight: weight,
+                height: _user!.height,
+                age: _user!.age,
+              );
+            });
+          }
         }
       },
     );
@@ -648,20 +718,23 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       suffix: 'cm',
       controller: controller,
       keyboardType: TextInputType.number,
-      onSave: (value) {
+      onSave: (value) async {
         final height = double.tryParse(value);
         if (height != null && _user != null) {
-          setState(() {
-            _user = UserProfile(
-              name: _user!.name,
-              email: _user!.email,
-              goal: _user!.goal,
-              level: _user!.level,
-              weight: _user!.weight,
-              height: height,
-              age: _user!.age,
-            );
-          });
+          await _updateProfile(heightCm: height.toInt());
+          if (mounted) {
+            setState(() {
+              _user = UserProfile(
+                name: _user!.name,
+                email: _user!.email,
+                goal: _user!.goal,
+                level: _user!.level,
+                weight: _user!.weight,
+                height: height,
+                age: _user!.age,
+              );
+            });
+          }
         }
       },
     );
@@ -676,20 +749,25 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       suffix: '歳',
       controller: controller,
       keyboardType: TextInputType.number,
-      onSave: (value) {
+      onSave: (value) async {
         final age = int.tryParse(value);
         if (age != null && _user != null) {
-          setState(() {
-            _user = UserProfile(
-              name: _user!.name,
-              email: _user!.email,
-              goal: _user!.goal,
-              level: _user!.level,
-              weight: _user!.weight,
-              height: _user!.height,
-              age: age,
-            );
-          });
+          // 年齢から生年を計算
+          final birthYear = DateTime.now().year - age;
+          await _updateProfile(birthYear: birthYear);
+          if (mounted) {
+            setState(() {
+              _user = UserProfile(
+                name: _user!.name,
+                email: _user!.email,
+                goal: _user!.goal,
+                level: _user!.level,
+                weight: _user!.weight,
+                height: _user!.height,
+                age: age,
+              );
+            });
+          }
         }
       },
     );
@@ -700,7 +778,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     required String suffix,
     required TextEditingController controller,
     required TextInputType keyboardType,
-    required Function(String) onSave,
+    required Future<void> Function(String) onSave,
   }) {
     showModalBottomSheet(
       context: context,
@@ -768,9 +846,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () {
-                  onSave(controller.text);
+                onPressed: () async {
                   Navigator.pop(context);
+                  await onSave(controller.text);
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.greenPrimary,
@@ -883,6 +961,34 @@ class UserProfile {
     required this.age,
   });
 
+  // DB英語値 → 日本語表示マッピング
+  static const Map<String, String> _goalEnToJa = {
+    'hypertrophy': '筋肥大',
+    'cut': '減量',
+    'health': '健康維持',
+    'strength': 'パワー向上',
+  };
+
+  static const Map<String, String> _levelEnToJa = {
+    'beginner': '初心者',
+    'intermediate': '中級者',
+    'advanced': '上級者',
+  };
+
+  // 日本語 → DB英語値マッピング
+  static const Map<String, String> _goalJaToEn = {
+    '筋肥大': 'hypertrophy',
+    '減量': 'cut',
+    '健康維持': 'health',
+    'パワー向上': 'strength',
+  };
+
+  static const Map<String, String> _levelJaToEn = {
+    '初心者': 'beginner',
+    '中級者': 'intermediate',
+    '上級者': 'advanced',
+  };
+
   factory UserProfile.empty() {
     return UserProfile(
       name: 'ユーザー',
@@ -896,14 +1002,24 @@ class UserProfile {
   }
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
+    // 生年から年齢を計算
+    int age = 25;
+    if (json['birth_year'] != null) {
+      age = DateTime.now().year - (json['birth_year'] as int);
+    }
+
+    // 英語のgoal/levelを日本語に変換
+    final goalEn = json['goal'] ?? 'hypertrophy';
+    final levelEn = json['training_level'] ?? 'beginner';
+
     return UserProfile(
       name: json['display_name'] ?? json['full_name'] ?? 'ユーザー',
       email: json['email'] ?? '',
-      goal: json['goal'] ?? '筋肥大',
-      level: json['level'] ?? '初心者',
+      goal: _goalEnToJa[goalEn] ?? goalEn,
+      level: _levelEnToJa[levelEn] ?? levelEn,
       weight: (json['weight_kg'] ?? 70.0).toDouble(),
       height: (json['height_cm'] ?? 170.0).toDouble(),
-      age: json['age'] ?? 25,
+      age: age,
     );
   }
 }

@@ -138,7 +138,7 @@ class WorkoutSession {
   final String name;
   final int exerciseCount;
   final Duration duration;
-  final int totalVolume;
+  final double totalVolume;
 
   WorkoutSession({
     required this.id,
