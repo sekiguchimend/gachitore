@@ -27,7 +27,6 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
     );
 
     _controller.forward();
-    // Navigation is now handled by main.dart
   }
 
   @override
@@ -48,13 +47,15 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
             children: [
               const Spacer(flex: 2),
               // Logo image
-              Image.asset(
-                'assets/images/skelton.png',
+              SizedBox(
                 width: 180,
                 height: 180,
-                fit: BoxFit.contain,
+                child: Image.asset(
+                  'assets/images/skelton.png',
+                  fit: BoxFit.contain,
+                ),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 12),
               // App name
               const Text(
                 'ガチトレ',
@@ -62,7 +63,6 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
                   fontSize: 32,
                   fontWeight: FontWeight.w900,
                   color: AppColors.textPrimary,
-                  letterSpacing: 2,
                 ),
               ),
               const Spacer(flex: 3),

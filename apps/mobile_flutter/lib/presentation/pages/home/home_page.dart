@@ -5,6 +5,9 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
 import '../../../data/models/ai_models.dart';
 import '../../../data/models/dashboard_models.dart';
+import '../../widgets/home/chat_input_field.dart';
+import '../../widgets/home/chat_message_bubble.dart';
+import '../../widgets/home/typing_indicator.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -28,6 +31,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     super.initState();
     _loadDashboard();
     _loadWelcomeMessage();
+    _loadInboxMessages();
   }
 
   @override
@@ -71,6 +75,29 @@ class _HomePageState extends ConsumerState<HomePage> {
       isUser: false,
       timestamp: DateTime.now(),
     ));
+  }
+
+  Future<void> _loadInboxMessages() async {
+    try {
+      final aiService = ref.read(aiServiceProvider);
+      final inbox = await aiService.getInboxMessages();
+      if (inbox.isEmpty) return;
+
+      if (!mounted) return;
+      setState(() {
+        for (final m in inbox) {
+          _messages.add(ChatMessage(
+            id: 'inbox-${m.id}',
+            content: m.content,
+            isUser: false,
+            timestamp: m.createdAt,
+          ));
+        }
+      });
+      _scrollToBottom();
+    } catch (_) {
+      // ignore (inbox is optional)
+    }
   }
 
   Future<void> _sendMessage([String? customMessage]) async {
@@ -159,15 +186,21 @@ class _HomePageState extends ConsumerState<HomePage> {
                 itemCount: _messages.length + (_isSending ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (index == _messages.length && _isSending) {
-                    return _buildTypingIndicator();
+                    return const TypingIndicator();
                   }
-                  return _buildMessageBubble(_messages[index]);
+                  return ChatMessageBubble(message: _messages[index]);
                 },
               ),
             ),
 
             // Input Field
-            _buildInputField(),
+            ChatInputField(
+              controller: _messageController,
+              onSend: () => _sendMessage(),
+              onCameraTap: () {
+                // TODO: Open camera/gallery
+              },
+            ),
           ],
         ),
       ),
@@ -426,317 +459,4 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  Widget _buildMessageBubble(ChatMessage message) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        mainAxisAlignment:
-            message.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!message.isUser) ...[
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: AppColors.textPrimary,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.smart_toy_outlined,
-                color: AppColors.bgMain,
-                size: 18,
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
-          Flexible(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: message.isUser
-                    ? AppColors.greenPrimary
-                    : AppColors.bgCard,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: Radius.circular(message.isUser ? 16 : 4),
-                  bottomRight: Radius.circular(message.isUser ? 4 : 16),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    message.content,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
-                      height: 1.5,
-                    ),
-                  ),
-                  if (message.recommendations != null &&
-                      message.recommendations!.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    ...message.recommendations!.map((rec) {
-                      return _buildRecommendationCard(rec);
-                    }),
-                  ],
-                  const SizedBox(height: 4),
-                  Text(
-                    _formatTime(message.timestamp),
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: message.isUser
-                          ? AppColors.textPrimary.withOpacity(0.7)
-                          : AppColors.textTertiary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (message.isUser) const SizedBox(width: 40),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRecommendationCard(Recommendation rec) {
-    IconData icon;
-    String label;
-    switch (rec.kind) {
-      case 'workout':
-        icon = Icons.fitness_center;
-        label = 'ワークアウトプラン';
-        break;
-      case 'meal':
-        icon = Icons.restaurant;
-        label = '食事提案';
-        break;
-      default:
-        icon = Icons.lightbulb_outline;
-        label = 'おすすめ';
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.bgSub,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: AppColors.greenPrimary),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: AppColors.greenPrimary,
-            ),
-          ),
-          const SizedBox(width: 8),
-          const Icon(
-            Icons.chevron_right,
-            size: 16,
-            color: AppColors.textTertiary,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTypingIndicator() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: AppColors.textPrimary,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(
-              Icons.smart_toy_outlined,
-              color: AppColors.bgMain,
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: const BoxDecoration(
-              color: AppColors.bgCard,
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(16),
-                topRight: Radius.circular(16),
-                bottomLeft: Radius.circular(4),
-                bottomRight: Radius.circular(16),
-              ),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _TypingDot(delay: 0),
-                SizedBox(width: 4),
-                _TypingDot(delay: 200),
-                SizedBox(width: 4),
-                _TypingDot(delay: 400),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInputField() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: const BoxDecoration(
-        color: AppColors.bgSub,
-        border: Border(
-          top: BorderSide(color: AppColors.border),
-        ),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: () {
-              // TODO: Open camera/gallery
-            },
-            icon: const Icon(
-              Icons.camera_alt_outlined,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          Expanded(
-            child: TextField(
-              controller: _messageController,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-              decoration: InputDecoration(
-                hintText: 'メッセージを入力...',
-                hintStyle: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textTertiary,
-                ),
-                filled: true,
-                fillColor: AppColors.bgCard,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-              onSubmitted: (_) => _sendMessage(),
-            ),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: () => _sendMessage(),
-            child: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: AppColors.greenPrimary,
-                borderRadius: BorderRadius.circular(22),
-              ),
-              child: const Icon(
-                Icons.send,
-                color: AppColors.textPrimary,
-                size: 20,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatTime(DateTime time) {
-    final now = DateTime.now();
-    final diff = now.difference(time);
-
-    if (diff.inMinutes < 1) {
-      return '今';
-    } else if (diff.inHours < 1) {
-      return '${diff.inMinutes}分前';
-    } else if (diff.inDays < 1) {
-      return '${diff.inHours}時間前';
-    } else {
-      return '${time.month}/${time.day}';
-    }
-  }
-}
-
-class _TypingDot extends StatefulWidget {
-  final int delay;
-
-  const _TypingDot({required this.delay});
-
-  @override
-  State<_TypingDot> createState() => _TypingDotState();
-}
-
-class _TypingDotState extends State<_TypingDot>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-    _animation = Tween<double>(begin: 0.3, end: 1.0).animate(_controller);
-
-    Future.delayed(Duration(milliseconds: widget.delay), () {
-      if (mounted) {
-        _controller.repeat(reverse: true);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, child) {
-        return Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: AppColors.textTertiary.withOpacity(_animation.value),
-            shape: BoxShape.circle,
-          ),
-        );
-      },
-    );
-  }
 }

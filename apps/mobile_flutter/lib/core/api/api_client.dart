@@ -1,14 +1,19 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
+import '../auth/jwt_utils.dart';
+import '../auth/auth_storage_keys.dart';
 
 class ApiClient {
   static const String _baseUrlKey = 'api_base_url';
-  static const String _tokenKey = 'access_token';
-  static const String _refreshTokenKey = 'refresh_token';
+  static const String _tokenKey = AuthStorageKeys.accessToken;
+  static const String _refreshTokenKey = AuthStorageKeys.refreshToken;
 
   late final Dio _dio;
   SharedPreferences? _prefs;
   bool _isRefreshing = false;
+  Future<bool>? _refreshFuture;
+  Timer? _autoRefreshTimer;
 
   // Callback for when refresh fails and user needs to re-login
   void Function()? onAuthenticationFailed;
@@ -76,22 +81,21 @@ class ApiClient {
   /// Try to refresh the access token using refresh token
   Future<bool> _tryRefreshToken() async {
     // Prevent multiple simultaneous refresh attempts
-    if (_isRefreshing) {
-      return false;
+    if (_refreshFuture != null) {
+      return await _refreshFuture!;
     }
 
     _isRefreshing = true;
+    final completer = Completer<bool>();
+    _refreshFuture = completer.future;
 
     try {
       final prefs = await _getPrefs();
       final refreshToken = prefs.getString(_refreshTokenKey);
 
       if (refreshToken == null || refreshToken.isEmpty) {
-        print('[ApiClient] No refresh token available');
         return false;
       }
-
-      print('[ApiClient] Attempting to refresh token...');
 
       // Make refresh request without interceptor to avoid infinite loop
       final response = await Dio(BaseOptions(
@@ -113,26 +117,102 @@ class ApiClient {
 
         if (newAccessToken != null) {
           await prefs.setString(_tokenKey, newAccessToken);
-          print('[ApiClient] Access token refreshed successfully');
 
           // Also update refresh token if provided
           if (newRefreshToken != null) {
             await prefs.setString(_refreshTokenKey, newRefreshToken);
-            print('[ApiClient] Refresh token updated');
           }
 
           return true;
         }
       }
 
-      print('[ApiClient] Token refresh failed - invalid response');
       return false;
     } catch (e) {
-      print('[ApiClient] Token refresh failed: $e');
       return false;
     } finally {
       _isRefreshing = false;
+      _refreshFuture = null;
     }
+  }
+
+  /// 起動時/復帰時に呼ぶ想定:
+  /// - access_token が有効なら true
+  /// - access_token が無効/未保存でも refresh_token があれば refresh して true を返す
+  /// - どちらもダメなら false
+  Future<bool> ensureValidSession({
+    Duration leeway = const Duration(minutes: 2),
+  }) async {
+    final prefs = await _getPrefs();
+    final accessToken = prefs.getString(_tokenKey);
+    final refreshToken = prefs.getString(_refreshTokenKey);
+
+    final isAccessValid = accessToken != null &&
+        accessToken.isNotEmpty &&
+        !JwtUtils.isExpiringSoon(accessToken, leeway: leeway);
+
+    if (isAccessValid) {
+      startAutoRefresh(leeway: leeway);
+      return true;
+    }
+
+    // access_token が無い/期限切れでも refresh_token があれば復元を試みる
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      final ok = await _tryRefreshToken();
+      if (ok) {
+        startAutoRefresh(leeway: leeway);
+      }
+      return ok;
+    }
+
+    stopAutoRefresh();
+    return false;
+  }
+
+  /// access_token の exp を見て、期限が近づいたら自動で refresh する
+  void startAutoRefresh({
+    Duration leeway = const Duration(minutes: 2),
+  }) {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = null;
+
+    _scheduleNextAutoRefresh(leeway: leeway);
+  }
+
+  void stopAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = null;
+  }
+
+  Future<void> _scheduleNextAutoRefresh({
+    required Duration leeway,
+  }) async {
+    final prefs = await _getPrefs();
+    final token = prefs.getString(_tokenKey);
+    if (token == null || token.isEmpty) return;
+
+    final exp = JwtUtils.tryGetExpiry(token);
+    if (exp == null) return;
+
+    final now = DateTime.now();
+    // 期限の leeway より前（= exp - leeway）に refresh
+    final refreshAt = exp.subtract(leeway);
+    final delay = refreshAt.difference(now);
+
+    // すぐ/過去なら即時実行（ただしスパム回避で最低30秒）
+    final safeDelay = delay.isNegative ? const Duration(seconds: 30) : delay;
+
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer(safeDelay, () async {
+      final ok = await _tryRefreshToken();
+      if (!ok) {
+        await _clearAllTokens();
+        onAuthenticationFailed?.call();
+        return;
+      }
+      // refresh 成功したら次を再スケジュール
+      await _scheduleNextAutoRefresh(leeway: leeway);
+    });
   }
 
   /// Clear all auth tokens
@@ -140,7 +220,7 @@ class ApiClient {
     final prefs = await _getPrefs();
     await prefs.remove(_tokenKey);
     await prefs.remove(_refreshTokenKey);
-    print('[ApiClient] All tokens cleared');
+    stopAutoRefresh();
   }
 
   Future<SharedPreferences> _getPrefs() async {

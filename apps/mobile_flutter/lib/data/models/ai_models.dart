@@ -212,3 +212,30 @@ class ChatMessage {
     this.recommendations,
   });
 }
+
+/// Inbox message for bot notifications (e.g., meal reminders)
+class AiInboxMessage {
+  final String id;
+  final String content;
+  final String kind;
+  final String mealType;
+  final DateTime createdAt;
+
+  AiInboxMessage({
+    required this.id,
+    required this.content,
+    required this.kind,
+    required this.mealType,
+    required this.createdAt,
+  });
+
+  factory AiInboxMessage.fromJson(Map<String, dynamic> json) {
+    return AiInboxMessage(
+      id: json['id'],
+      content: json['content'] ?? '',
+      kind: json['kind'] ?? '',
+      mealType: json['meal_type'] ?? '',
+      createdAt: DateTime.parse(json['created_at']),
+    );
+  }
+}

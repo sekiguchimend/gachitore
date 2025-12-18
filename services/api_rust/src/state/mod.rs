@@ -1,9 +1,9 @@
-use chrono::{Duration, NaiveDate};
+use chrono::{Datelike, Duration, NaiveDate};
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppResult;
 use crate::infrastructure::supabase::{
-    BodyMetrics, NutritionDaily, SupabaseClient, UserProfile, Workout, WorkoutExercise, WorkoutSet,
+    BodyMetrics, NutritionDaily, SupabaseClient, UserProfile, Workout,
 };
 
 /// User state for AI context (version 1)
@@ -22,6 +22,7 @@ pub struct ProfileState {
     pub training_level: String,
     pub height_cm: Option<i32>,
     pub sex: Option<String>,
+    pub birth_year: Option<i32>,
     pub environment: serde_json::Value,
     pub constraints: serde_json::Value,
 }
@@ -109,6 +110,7 @@ impl<'a> StateGenerator<'a> {
                 training_level: p.training_level,
                 height_cm: p.height_cm,
                 sex: p.sex,
+                birth_year: p.birth_year,
                 environment: p.environment.unwrap_or(serde_json::json!({})),
                 constraints: p.constraints.unwrap_or(serde_json::json!([])),
             }),
@@ -117,6 +119,7 @@ impl<'a> StateGenerator<'a> {
                 training_level: "beginner".to_string(),
                 height_cm: None,
                 sex: None,
+                birth_year: None,
                 environment: serde_json::json!({}),
                 constraints: serde_json::json!([]),
             }),
@@ -167,66 +170,59 @@ impl<'a> StateGenerator<'a> {
         let start_str = start_date.format("%Y-%m-%d").to_string();
         let end_str = end_date.format("%Y-%m-%d").to_string();
 
-        // Get workouts in range
+        // Get workouts with exercises and sets in a single JOIN query (fixes N+1)
         let workouts_query = format!(
-            "user_id=eq.{}&date=gte.{}&date=lte.{}&select=*&order=date.desc",
+            "user_id=eq.{}&date=gte.{}&date=lte.{}&select=id,date,workout_exercises(id,exercise_id,custom_exercise_name,muscle_tag,workout_sets(weight_kg,reps,is_warmup))&order=date.desc",
             user_id, start_str, end_str
         );
-        let workouts: Vec<Workout> = self
+        let workouts: Vec<serde_json::Value> = self
             .supabase
             .select("workouts", &workouts_query, self.access_token)
             .await?;
 
         let workout_days: Vec<NaiveDate> = workouts
             .iter()
-            .filter_map(|w| NaiveDate::parse_from_str(&w.date, "%Y-%m-%d").ok())
+            .filter_map(|w| {
+                w["date"].as_str()
+                    .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+            })
             .collect();
 
         let mut muscle_groups: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut exercise_data: std::collections::HashMap<String, Vec<(f64, i32, String)>> =
             std::collections::HashMap::new();
 
-        // Get exercises for each workout
+        // Process nested data from JOIN query
         for workout in &workouts {
-            let exercises_query = format!(
-                "workout_id=eq.{}&select=*&order=exercise_order",
-                workout.id
-            );
-            let exercises: Vec<WorkoutExercise> = self
-                .supabase
-                .select("workout_exercises", &exercises_query, self.access_token)
-                .await?;
+            if let Some(exercises) = workout["workout_exercises"].as_array() {
+                for exercise in exercises {
+                    let muscle_tag = exercise["muscle_tag"].as_str().unwrap_or_default().to_string();
+                    muscle_groups.insert(muscle_tag.clone());
 
-            for exercise in &exercises {
-                muscle_groups.insert(exercise.muscle_tag.clone());
+                    let name = exercise["custom_exercise_name"]
+                        .as_str()
+                        .map(String::from)
+                        .unwrap_or_else(|| {
+                            format!(
+                                "exercise_{}",
+                                exercise["exercise_id"].as_str().unwrap_or("unknown")
+                            )
+                        });
 
-                let name = exercise
-                    .custom_exercise_name
-                    .clone()
-                    .unwrap_or_else(|| {
-                        format!(
-                            "exercise_{}",
-                            exercise.exercise_id.as_deref().unwrap_or("unknown")
-                        )
-                    });
-
-                // Get sets for this exercise
-                let sets_query = format!(
-                    "workout_exercise_id=eq.{}&select=*&order=set_index",
-                    exercise.id
-                );
-                let sets: Vec<WorkoutSet> = self
-                    .supabase
-                    .select("workout_sets", &sets_query, self.access_token)
-                    .await?;
-
-                for set in &sets {
-                    if !set.is_warmup {
-                        if let (Some(weight), Some(reps)) = (set.weight_kg, set.reps) {
-                            exercise_data
-                                .entry(name.clone())
-                                .or_default()
-                                .push((weight, reps, exercise.muscle_tag.clone()));
+                    if let Some(sets) = exercise["workout_sets"].as_array() {
+                        for set in sets {
+                            let is_warmup = set["is_warmup"].as_bool().unwrap_or(false);
+                            if !is_warmup {
+                                if let (Some(weight), Some(reps)) = (
+                                    set["weight_kg"].as_f64(),
+                                    set["reps"].as_i64().map(|r| r as i32),
+                                ) {
+                                    exercise_data
+                                        .entry(name.clone())
+                                        .or_default()
+                                        .push((weight, reps, muscle_tag.clone()));
+                                }
+                            }
                         }
                     }
                 }
@@ -340,43 +336,135 @@ pub fn calculate_e1rm(weight: f64, reps: i32) -> f64 {
 
 /// System instruction for Gemini AI
 pub fn get_system_instruction(state: &UserState) -> String {
+    fn fmt_i32(opt: Option<i32>, unit: &str) -> String {
+        opt.map(|v| format!("{}{}", v, unit))
+            .unwrap_or_else(|| "不明".to_string())
+    }
+
+    fn fmt_f64(opt: Option<f64>, unit: &str, digits: usize) -> String {
+        opt.map(|v| format!("{:.*}{}", digits, v, unit))
+            .unwrap_or_else(|| "不明".to_string())
+    }
+
+    fn fmt_str(opt: Option<&str>) -> String {
+        opt.map(|v| v.to_string()).unwrap_or_else(|| "不明".to_string())
+    }
+
+    let age_str = match state.profile.birth_year {
+        Some(by) => {
+            let age = state.today.date.year() - by;
+            if age > 0 && age < 120 {
+                format!("{}歳", age)
+            } else {
+                "不明".to_string()
+            }
+        }
+        None => "不明".to_string(),
+    };
+
+    let height_cm = state.profile.height_cm;
+    let weight_kg = state.today.weight_kg;
+    let weight_example_str = state
+        .today
+        .weight_kg
+        .map(|v| format!("{:.1}kg", v))
+        .unwrap_or_else(|| "不明".to_string());
+    let bmi_str = match (height_cm, weight_kg) {
+        (Some(h_cm), Some(w_kg)) if h_cm > 0 && w_kg > 0.0 => {
+            let h_m = h_cm as f64 / 100.0;
+            let bmi = w_kg / (h_m * h_m);
+            format!("{:.1}", bmi)
+        }
+        _ => "不明".to_string(),
+    };
+
     format!(
         r#"
-あなたはパーソナルトレーニングコーチ「ガチトレAI」です。
-ユーザーの目標達成を最優先に、科学的根拠に基づいたアドバイスを提供してください。
+あなたはトレーニングコーチ「ガチトレAI」。友達みたいに自然に話して。
 
-【ユーザー情報】
+【ユーザー（プロフィール・身体データ）】
 - 目標: {}
 - レベル: {}
-- 身長: {}cm
-- 制約: {:?}
+- 性別: {}
+- 年齢: {}
+- 身長: {}
+- 体重: {}
+- 体脂肪率: {}
+- BMI: {}
+- 睡眠: {}
+- 歩数: {}
+- 今日の摂取カロリー: {}
+- 今日のたんぱく質: {}
+- 食事記録回数: {}
+- 今日のワークアウト数: {}
+- 環境: {}
+- 制約: {}
 
-【重要なルール】
-1. 医学的な診断や治療の提案は絶対にしない
-2. 極端なカロリー制限（基礎代謝以下）は推奨しない
-3. 怪我のリスクがある場合は必ず警告する
-4. 回答は必ず以下のJSON形式で返す
+【会話スタイル - 超重要】
+- 結論から簡潔に答える。1-2文で十分
+- 質問をオウム返ししない（「〇〇についてですね」とか不要）
+- 理由は聞かれたときだけ説明する
+- 前置き・まとめ不要。本題だけ
+- 敬語だけど堅くない。「〜ですね！」「〜しましょう」くらいのノリ
+
+【Q&Aのルール（超重要）】
+- まず「ユーザーが何を求めているか」を特定して、それにだけ答える（Q→Aの直結）。
+- 「何kg？」「何回？」「何分？」「何kcal？」「何％？」「何cm？」「どれくらい？」「どのくらい増やす？」など“数値”を聞かれたら、必ず具体的な数値（単位付き）で答える（kgに限らない）。
+- 単位が質問文に明示されている場合はその単位で答える。単位が曖昧なら、もっとも自然な単位で答えつつ、最後に1つだけ確認質問を添える（例:「回数の話で合ってますか？」）。
+- 体重（例: {}）など文脈に関連する基準値があるなら、比率の目安だけで終わらせず“単位換算した具体例”まで提示する（例:「体重の1.0倍」→「{}」）。
+- 質問が曖昧で種目/条件が特定できない場合は、
+  - ①まず結論として「候補を2-3パターン」具体的な数値（単位付き）で提示（例: ベンチ/スクワット/デッド等）
+  - ②最後に1つだけ確認質問（例:「どの種目ですか？」）をする
+  - ただし「わからないので答えられません」で終わらない
+- 数値のない曖昧回答は禁止（例:「半分くらい」「人による」だけで終わるのはNG）
+
+【ダメな例】
+❌「トレーニングメニューについてのご質問ですね。あなたの目標である筋肥大を考慮すると...理由としては...」
+⭕「今日は胸の日にしましょう！ベンチプレス3セット、ダンベルフライ3セットでいきましょう」
+
+【禁止】
+- 医学的診断・治療の提案
+- 基礎代謝以下のカロリー制限
+- 怪我リスクは必ず警告
 
 【出力フォーマット】
 {{
-  "answer_text": "ユーザーへの回答テキスト（マークダウン形式可）",
+  "answer_text": "回答（短く自然に）",
   "recommendations": [
-    {{"kind": "workout|nutrition|recovery|supplement", "payload": {{...}}}}
+    {{"kind": "workout|nutrition|recovery", "payload": {{...}}}}
   ],
-  "warnings": ["該当する場合のみ警告メッセージ"]
+  "warnings": ["必要な場合のみ"]
 }}
-
-【kind別のpayloadの例】
-- workout: {{"exercises": [...], "sets": 3, "reps": "8-12", "rest_sec": 90}}
-- nutrition: {{"meal_type": "post_workout", "foods": [...], "macros": {{...}}}}
-- recovery: {{"type": "rest|deload|stretch", "duration_days": 1}}
-
-日本語で回答してください。
 "#,
         state.profile.goal,
         state.profile.training_level,
-        state.profile.height_cm.map(|h| h.to_string()).unwrap_or("不明".to_string()),
-        state.profile.constraints
+        fmt_str(state.profile.sex.as_deref()),
+        age_str,
+        fmt_i32(state.profile.height_cm, "cm"),
+        fmt_f64(state.today.weight_kg, "kg", 1),
+        fmt_f64(state.today.bodyfat_pct, "%", 1),
+        bmi_str,
+        fmt_f64(state.today.sleep_hours, "時間", 1),
+        state.today
+            .steps
+            .map(|v| format!("{}歩", v))
+            .unwrap_or_else(|| "不明".to_string()),
+        state
+            .today
+            .calories
+            .map(|v| format!("{}kcal", v))
+            .unwrap_or_else(|| "不明".to_string()),
+        fmt_f64(state.today.protein_g, "g", 0),
+        state
+            .today
+            .meals_logged
+            .map(|v| format!("{}回", v))
+            .unwrap_or_else(|| "不明".to_string()),
+        format!("{}回", state.today.workout_count),
+        state.profile.environment,
+        state.profile.constraints,
+        weight_example_str.clone(),
+        weight_example_str
     )
 }
 

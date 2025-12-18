@@ -12,7 +12,8 @@ use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tower_http::cors::{Any, CorsLayer};
+use axum::http::{header, Method};
+use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -59,11 +60,31 @@ async fn main() -> anyhow::Result<()> {
         config: Arc::new(config),
     };
 
-    // Build CORS layer
+    // Build CORS layer with restricted origins
+    let origins: Vec<_> = state
+        .config
+        .allowed_origins
+        .iter()
+        .filter_map(|origin| origin.parse().ok())
+        .collect();
+
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin(origins)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+        ])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::ACCEPT,
+        ])
+        .allow_credentials(true);
+
+    tracing::info!("CORS allowed origins: {:?}", state.config.allowed_origins);
 
     // Build router
     let app = Router::new()

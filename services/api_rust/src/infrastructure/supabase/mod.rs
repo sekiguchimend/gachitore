@@ -132,6 +132,42 @@ impl SupabaseClient {
             .ok_or_else(|| AppError::SupabaseError("No data returned from INSERT".to_string()))
     }
 
+    /// Execute a batch INSERT (multiple rows at once)
+    pub async fn insert_batch<T: Serialize>(
+        &self,
+        table: &str,
+        data: &[T],
+        access_token: &str,
+    ) -> AppResult<()> {
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        let url = format!("{}/{}", self.rest_url(), table);
+
+        let response = self
+            .client
+            .post(&url)
+            .header("apikey", &self.anon_key)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Content-Type", "application/json")
+            .header("Prefer", "return=minimal")
+            .json(data)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(AppError::SupabaseError(format!(
+                "INSERT batch failed: {} - {}",
+                status, body
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Execute an UPDATE
     pub async fn update<T: Serialize>(
         &self,
@@ -298,7 +334,81 @@ impl SupabaseClient {
         }
 
         let sign_response: SignResponse = response.json().await?;
-        Ok(format!("{}{}", self.base_url, sign_response.signed_url))
+        let signed_url = sign_response.signed_url;
+        if signed_url.starts_with("http://") || signed_url.starts_with("https://") {
+            Ok(signed_url)
+        } else {
+            Ok(format!("{}{}", self.base_url, signed_url))
+        }
+    }
+
+    /// Upload an object to Supabase Storage (uses anon key + user JWT for RLS)
+    pub async fn upload_object(
+        &self,
+        bucket: &str,
+        path: &str,
+        bytes: Vec<u8>,
+        content_type: &str,
+        access_token: &str,
+    ) -> AppResult<()> {
+        let url = format!(
+            "{}/storage/v1/object/{}/{}",
+            self.base_url, bucket, path
+        );
+
+        let response = self
+            .client
+            .post(&url)
+            .header("apikey", &self.anon_key)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Content-Type", content_type)
+            .header("x-upsert", "true")
+            .body(bytes)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(AppError::SupabaseError(format!(
+                "Storage upload error: {} - {}",
+                status, body
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Delete an object from Supabase Storage (uses anon key + user JWT for RLS)
+    pub async fn delete_object(
+        &self,
+        bucket: &str,
+        path: &str,
+        access_token: &str,
+    ) -> AppResult<()> {
+        let url = format!(
+            "{}/storage/v1/object/{}/{}",
+            self.base_url, bucket, path
+        );
+
+        let response = self
+            .client
+            .delete(&url)
+            .header("apikey", &self.anon_key)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(AppError::SupabaseError(format!(
+                "Storage delete error: {} - {}",
+                status, body
+            )));
+        }
+
+        Ok(())
     }
 }
 
@@ -401,4 +511,15 @@ pub struct AiMessage {
     pub role: String,
     pub content: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserPhoto {
+    pub id: String,
+    pub user_id: String,
+    pub bucket_id: String,
+    pub object_path: String,
+    pub taken_at: Option<String>,
+    pub created_at: String,
+    pub meta: Option<serde_json::Value>,
 }

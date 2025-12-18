@@ -51,7 +51,6 @@ class AuthService {
     required String password,
   }) async {
     try {
-      print('[AuthService] Starting signup for $email');
       final response = await _apiClient.post(
         '/auth/signup',
         data: {
@@ -60,13 +59,10 @@ class AuthService {
         },
       );
 
-      print('[AuthService] Signup response received');
       final authResponse = AuthResponse.fromJson(response.data);
-      print('[AuthService] Parsed response, access_token present: ${authResponse.accessToken.isNotEmpty}');
       await _saveAuthData(authResponse);
       return authResponse;
     } on DioException catch (e) {
-      print('[AuthService] Signup error: ${e.message}');
       throw _handleAuthError(e);
     }
   }
@@ -170,13 +166,6 @@ class AuthService {
     List<String>? constraints,
     int? mealsPerDay,
   }) async {
-    // DEBUG: Check token before request
-    final prefs = await _getPrefs();
-    final token = prefs.getString(_accessTokenKey);
-    print('[AuthService] completeOnboarding - Token from storage: ${token != null ? "present (${token.length} chars)" : "NULL!!!"}');
-    final apiToken = await _apiClient.getToken();
-    print('[AuthService] completeOnboarding - Token from ApiClient: ${apiToken != null ? "present (${apiToken.length} chars)" : "NULL!!!"}');
-
     // 生年を計算 (DBはbirth_yearを期待)
     final birthYear = DateTime.now().year - age;
 
@@ -254,18 +243,12 @@ class AuthService {
 
   // Save auth data to storage
   Future<void> _saveAuthData(AuthResponse response) async {
-    print('[AuthService] Saving auth data...');
-    print('[AuthService] Access token length: ${response.accessToken.length}');
     final prefs = await _getPrefs();
     await prefs.setString(_accessTokenKey, response.accessToken);
     await prefs.setString(_refreshTokenKey, response.refreshToken);
     await prefs.setString(_userIdKey, response.user.id);
     await prefs.setString(_userEmailKey, response.user.email);
     await _apiClient.setToken(response.accessToken);
-
-    // Verify token was saved
-    final savedToken = prefs.getString(_accessTokenKey);
-    print('[AuthService] Token saved and verified: ${savedToken != null ? "yes (${savedToken.length} chars)" : "NO!"}');
   }
 
   // Clear auth data from storage

@@ -20,6 +20,9 @@ Future<void> main() async {
     AppRouter.authNotifier.setLoggedIn(false);
   };
 
+  // 起動時にセッション復元（refresh_token があれば refresh）してログイン画面をスキップできるようにする
+  await AppRouter.authNotifier.checkAuthStatus();
+
   // Set system UI overlay style for dark theme
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

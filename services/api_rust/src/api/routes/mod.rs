@@ -22,6 +22,7 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         .nest("/dashboard", dashboard_routes(state.clone()))
         .nest("/log", log_routes(state.clone()))
         .nest("/ai", ai_routes(state.clone()))
+        .nest("/photos", photos_routes(state.clone()))
 }
 
 /// Health check endpoint
@@ -95,5 +96,13 @@ fn ai_routes(state: AppState) -> Router<AppState> {
         .route("/ask", post(handlers::ask_ai))
         .route("/plan/today", post(handlers::plan_today))
         .route("/history", get(handlers::get_ai_history))
+        .route("/inbox", get(handlers::get_ai_inbox))
+        .route_layer(middleware::from_fn_with_state(state, auth_middleware))
+}
+
+/// /v1/photos/* routes (auth required)
+fn photos_routes(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/", get(handlers::list_photos).post(handlers::upload_photo))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }

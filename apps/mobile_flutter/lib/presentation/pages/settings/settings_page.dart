@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
 import '../../widgets/common/app_button.dart';
+import '../../widgets/settings/picker_bottom_sheet.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -594,78 +595,18 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.bgCard,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            ...options.map((option) {
-              final isSelected = option == currentValue;
-              return GestureDetector(
-                onTap: () {
-                  onSelected(option);
-                  Navigator.pop(context);
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(
-                        color: AppColors.border.withOpacity(0.5),
-                      ),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          option,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: isSelected
-                                ? AppColors.greenPrimary
-                                : AppColors.textPrimary,
-                          ),
-                        ),
-                      ),
-                      if (isSelected)
-                        const Icon(
-                          Icons.check,
-                          color: AppColors.greenPrimary,
-                        ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-            const SizedBox(height: 16),
-          ],
-        ),
+      builder: (context) => PickerBottomSheet(
+        title: title,
+        options: options,
+        currentValue: currentValue,
+        onSelected: (value) {
+          onSelected(value);
+          Navigator.pop(context);
+        },
       ),
     );
   }

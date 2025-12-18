@@ -1,0 +1,53 @@
+# Environment variables (CRITICAL - contains API keys and secrets)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Rust
+services/api_rust/target/
+**/*.rs.bk
+Cargo.lock
+
+# Flutter
+apps/mobile_flutter/.dart_tool/
+apps/mobile_flutter/.packages
+apps/mobile_flutter/build/
+apps/mobile_flutter/.flutter-plugins
+apps/mobile_flutter/.flutter-plugins-dependencies
+apps/mobile_flutter/*.iml
+apps/mobile_flutter/.idea/
+apps/mobile_flutter/.metadata
+
+# macOS
+.DS_Store
+*.swp
+*.swo
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Logs
+*.log
+logs/
+
+# Node (for Supabase functions)
+node_modules/
+supabase/functions/**/node_modules/
+
+# Supabase
+supabase/.branches/
+supabase/.temp/
+
+# Build outputs
+dist/
+out/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Debug
+*.dSYM/

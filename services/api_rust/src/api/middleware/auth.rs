@@ -9,7 +9,6 @@ use axum::{
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
 use crate::{error::AppError, AppState};
 
@@ -98,7 +97,7 @@ pub async fn auth_middleware(
         }
     };
 
-    tracing::debug!("Token length: {}, first 20 chars: {}", token.len(), &token[..token.len().min(20)]);
+    tracing::debug!("Token received (length: {})", token.len());
 
     // Validate JWT
     match validate_jwt(token, &state.config.supabase_jwt_secret) {
@@ -132,7 +131,6 @@ fn validate_jwt(token: &str, secret: &str) -> Result<Claims, AppError> {
     })?;
 
     tracing::debug!("JWT algorithm: {:?}", header.alg);
-    tracing::debug!("JWT secret length: {}", secret.len());
 
     let mut validation = Validation::new(header.alg);
     validation.set_audience(&["authenticated"]);
@@ -144,19 +142,17 @@ fn validate_jwt(token: &str, secret: &str) -> Result<Claims, AppError> {
             DecodingKey::from_secret(secret.as_bytes())
         }
         Algorithm::ES256 | Algorithm::ES384 => {
-            // ECDSA algorithms - Supabase provides base64-encoded secret
-            // Try to decode as base64 first, then use as raw bytes if that fails
-            let secret_bytes = URL_SAFE_NO_PAD.decode(secret)
-                .or_else(|_| base64::engine::general_purpose::STANDARD.decode(secret))
-                .unwrap_or_else(|_| secret.as_bytes().to_vec());
-            
-            tracing::debug!("Decoded secret length: {} bytes", secret_bytes.len());
-            
-            // For ES256, we need to validate without the secret (using JWKS in production)
-            // For now, skip signature validation and trust Supabase
-            // In production, you should fetch JWKS from Supabase
-            validation.insecure_disable_signature_validation();
-            DecodingKey::from_secret(&[]) // Dummy key since we're skipping validation
+            // ECDSA algorithms require JWKS validation which is not implemented
+            // Supabase typically uses HS256 with JWT secret
+            // If you receive ES256/ES384 tokens, implement JWKS fetching from:
+            // https://<your-project>.supabase.co/auth/v1/.well-known/jwks.json
+            tracing::error!(
+                "Unsupported JWT algorithm {:?}. Configure Supabase to use HS256 or implement JWKS validation.",
+                header.alg
+            );
+            return Err(AppError::InvalidToken(
+                "ES256/ES384 algorithms require JWKS validation. Please use HS256.".to_string()
+            ));
         }
         _ => {
             tracing::error!("Unsupported JWT algorithm: {:?}", header.alg);

@@ -7,6 +7,9 @@ pub struct Config {
     pub host: String,
     pub port: u16,
 
+    // CORS - allowed origins (comma-separated list)
+    pub allowed_origins: Vec<String>,
+
     // Supabase (anon key only - RLS enabled)
     pub supabase_url: String,
     pub supabase_anon_key: String,
@@ -20,12 +23,23 @@ pub struct Config {
 impl Config {
     /// Load configuration from environment variables
     pub fn from_env() -> anyhow::Result<Self> {
+        // Parse CORS allowed origins from comma-separated list
+        let allowed_origins = env::var("ALLOWED_ORIGINS")
+            .unwrap_or_else(|_| "http://localhost:3000".to_string())
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
         Ok(Self {
             // Server
             host: env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             port: env::var("PORT")
                 .unwrap_or_else(|_| "8080".to_string())
                 .parse()?,
+
+            // CORS
+            allowed_origins,
 
             // Supabase (anon key only)
             supabase_url: env::var("SUPABASE_URL")

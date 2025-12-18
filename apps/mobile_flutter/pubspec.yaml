@@ -39,9 +39,9 @@ dependencies:
 
   # Charts
   fl_chart: ^0.69.0
-
   # Fonts
-  google_fonts: ^6.2.1
+  # NOTE: Noto Sans JP is bundled as local assets (see flutter/fonts below) to avoid
+  # network font download delays during splash/startup.
 
 dev_dependencies:
   flutter_test:
@@ -56,3 +56,19 @@ flutter:
   assets:
     - assets/images/
     - assets/icons/
+
+  fonts:
+    - family: NotoSansJP
+      fonts:
+        - asset: assets/fonts/NotoSansJP-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansJP-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/NotoSansJP-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/NotoSansJP-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/NotoSansJP-ExtraBold.ttf
+          weight: 800
+        - asset: assets/fonts/NotoSansJP-Black.ttf
+          weight: 900

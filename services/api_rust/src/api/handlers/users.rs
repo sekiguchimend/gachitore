@@ -4,9 +4,69 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::middleware::AuthUser,
-    error::AppResult,
+    error::{AppError, AppResult},
     AppState,
 };
+
+// =============================================================================
+// Validation Helpers
+// =============================================================================
+
+/// Validate goal is one of allowed values
+fn validate_goal(goal: &str) -> Result<(), AppError> {
+    const ALLOWED_GOALS: &[&str] = &["muscle_gain", "fat_loss", "health", "endurance", "strength"];
+    if ALLOWED_GOALS.contains(&goal.to_lowercase().as_str()) {
+        Ok(())
+    } else {
+        Err(AppError::Validation(format!(
+            "Invalid goal. Allowed: {:?}",
+            ALLOWED_GOALS
+        )))
+    }
+}
+
+/// Validate training level is one of allowed values
+fn validate_level(level: &str) -> Result<(), AppError> {
+    const ALLOWED_LEVELS: &[&str] = &["beginner", "intermediate", "advanced"];
+    if ALLOWED_LEVELS.contains(&level.to_lowercase().as_str()) {
+        Ok(())
+    } else {
+        Err(AppError::Validation(format!(
+            "Invalid level. Allowed: {:?}",
+            ALLOWED_LEVELS
+        )))
+    }
+}
+
+/// Validate sex is one of allowed values
+fn validate_sex(sex: &str) -> Result<(), AppError> {
+    const ALLOWED_SEX: &[&str] = &["male", "female", "other"];
+    if ALLOWED_SEX.contains(&sex.to_lowercase().as_str()) {
+        Ok(())
+    } else {
+        Err(AppError::Validation(format!(
+            "Invalid sex. Allowed: {:?}",
+            ALLOWED_SEX
+        )))
+    }
+}
+
+/// Validate numeric range for physical attributes
+fn validate_range<T: PartialOrd + std::fmt::Display>(
+    value: T,
+    min: T,
+    max: T,
+    field: &str,
+) -> Result<(), AppError> {
+    if value < min || value > max {
+        Err(AppError::Validation(format!(
+            "{} must be between {} and {}",
+            field, min, max
+        )))
+    } else {
+        Ok(())
+    }
+}
 
 // =============================================================================
 // Update Profile Request
@@ -144,9 +204,17 @@ pub async fn complete_onboarding(
     Extension(user): Extension<AuthUser>,
     Json(req): Json<CompleteOnboardingRequest>,
 ) -> AppResult<Json<MessageResponse>> {
+    // Validate all inputs
+    validate_goal(&req.goal)?;
+    validate_level(&req.level)?;
+    validate_sex(&req.sex)?;
+    validate_range(req.weight, 20.0, 300.0, "weight")?;
+    validate_range(req.height, 50.0, 250.0, "height")?;
+    validate_range(req.age, 1, 120, "age")?;
+
     let now = chrono::Utc::now();
     let today = now.format("%Y-%m-%d").to_string();
-    
+
     // Calculate birth year from age
     let current_year = now.year();
     let birth_year = current_year - req.age;
@@ -213,46 +281,110 @@ pub async fn update_profile(
     Extension(user): Extension<AuthUser>,
     Json(req): Json<UpdateProfileRequest>,
 ) -> AppResult<Json<MessageResponse>> {
+    // Validate optional fields if provided
+    if let Some(ref goal) = req.goal {
+        validate_goal(goal)?;
+    }
+    if let Some(ref level) = req.training_level {
+        validate_level(level)?;
+    }
+    if let Some(ref sex) = req.sex {
+        validate_sex(sex)?;
+    }
+    if let Some(height) = req.height_cm {
+        validate_range(height, 50, 250, "height_cm")?;
+    }
+    if let Some(weight) = req.weight_kg {
+        validate_range(weight, 20.0, 300.0, "weight_kg")?;
+    }
+    if let Some(birth_year) = req.birth_year {
+        let current_year = chrono::Utc::now().year();
+        validate_range(birth_year, 1900, current_year, "birth_year")?;
+    }
+    if let Some(ref name) = req.display_name {
+        if name.len() > 100 {
+            return Err(AppError::Validation("display_name is too long (max 100 chars)".to_string()));
+        }
+    }
+
     let now = chrono::Utc::now();
     let today = now.format("%Y-%m-%d").to_string();
 
-    // Build profile update data (only include fields that are provided)
-    let mut profile_updates = serde_json::Map::new();
-    profile_updates.insert("user_id".to_string(), serde_json::json!(user.user_id));
-    profile_updates.insert("updated_at".to_string(), serde_json::json!(now.to_rfc3339()));
-
-    if let Some(display_name) = &req.display_name {
-        profile_updates.insert("display_name".to_string(), serde_json::json!(display_name));
-    }
-    if let Some(goal) = &req.goal {
-        profile_updates.insert("goal".to_string(), serde_json::json!(goal));
-    }
-    if let Some(training_level) = &req.training_level {
-        profile_updates.insert("training_level".to_string(), serde_json::json!(training_level));
-    }
-    if let Some(sex) = &req.sex {
-        profile_updates.insert("sex".to_string(), serde_json::json!(sex));
-    }
-    if let Some(height_cm) = req.height_cm {
-        profile_updates.insert("height_cm".to_string(), serde_json::json!(height_cm));
-    }
-    if let Some(birth_year) = req.birth_year {
-        profile_updates.insert("birth_year".to_string(), serde_json::json!(birth_year));
-    }
-    if let Some(environment) = &req.environment {
-        profile_updates.insert("environment".to_string(), environment.clone());
-    }
-    if let Some(constraints) = &req.constraints {
-        profile_updates.insert("constraints".to_string(), constraints.clone());
-    }
-
-    let profile_data = serde_json::Value::Object(profile_updates);
-
-    // Upsert user profile
-    state
+    // If profile row doesn't exist yet, UPSERT becomes an INSERT and must satisfy NOT NULL columns.
+    // So: existing -> UPDATE (partial), missing -> UPSERT with required defaults.
+    let existing_profile: Option<serde_json::Value> = state
         .supabase
-        .upsert("user_profiles", &profile_data, "user_id", &user.token)
+        .select_single(
+            "user_profiles",
+            &format!("user_id=eq.{}&select=user_id", user.user_id),
+            &user.token,
+        )
         .await?;
+
+    if existing_profile.is_some() {
+        // Partial update only (safe even when display_name is not provided)
+        let mut profile_updates = serde_json::Map::new();
+        profile_updates.insert("updated_at".to_string(), serde_json::json!(now.to_rfc3339()));
+
+        if let Some(display_name) = &req.display_name {
+            profile_updates.insert("display_name".to_string(), serde_json::json!(display_name));
+        }
+        if let Some(goal) = &req.goal {
+            profile_updates.insert("goal".to_string(), serde_json::json!(goal));
+        }
+        if let Some(training_level) = &req.training_level {
+            profile_updates.insert("training_level".to_string(), serde_json::json!(training_level));
+        }
+        if let Some(sex) = &req.sex {
+            profile_updates.insert("sex".to_string(), serde_json::json!(sex));
+        }
+        if let Some(height_cm) = req.height_cm {
+            profile_updates.insert("height_cm".to_string(), serde_json::json!(height_cm));
+        }
+        if let Some(birth_year) = req.birth_year {
+            profile_updates.insert("birth_year".to_string(), serde_json::json!(birth_year));
+        }
+        if let Some(environment) = &req.environment {
+            profile_updates.insert("environment".to_string(), environment.clone());
+        }
+        if let Some(constraints) = &req.constraints {
+            profile_updates.insert("constraints".to_string(), constraints.clone());
+        }
+
+        let profile_data = serde_json::Value::Object(profile_updates);
+        state
+            .supabase
+            .update(
+                "user_profiles",
+                &format!("user_id=eq.{}", user.user_id),
+                &profile_data,
+                &user.token,
+            )
+            .await?;
+    } else {
+        // Create minimal profile row with required defaults
+        let display_name_default = user.email.split('@').next().unwrap_or("User");
+
+        let profile_data = serde_json::json!({
+            "user_id": user.user_id,
+            "display_name": req.display_name.as_deref().unwrap_or(display_name_default),
+            "goal": req.goal.as_deref().unwrap_or("health"),
+            "training_level": req.training_level.as_deref().unwrap_or("beginner"),
+            "sex": req.sex,
+            "height_cm": req.height_cm,
+            "birth_year": req.birth_year,
+            "environment": req.environment.unwrap_or_else(|| serde_json::json!({})),
+            "constraints": req.constraints.unwrap_or_else(|| serde_json::json!([])),
+            "meals_per_day": 3,
+            "onboarding_completed": false,
+            "updated_at": now.to_rfc3339(),
+        });
+
+        state
+            .supabase
+            .upsert("user_profiles", &profile_data, "user_id", &user.token)
+            .await?;
+    }
 
     // If weight is provided, also update body_metrics
     if let Some(weight_kg) = req.weight_kg {

@@ -6,20 +6,29 @@ import '../../presentation/pages/setup/setup_page.dart';
 import '../../presentation/pages/home/home_page.dart';
 import '../../presentation/pages/food/food_page.dart';
 import '../../presentation/pages/muscle/muscle_page.dart';
+import '../../presentation/pages/photos/photos_page.dart';
 import '../../presentation/pages/settings/settings_page.dart';
 import '../constants/app_colors.dart';
+import '../api/api_client.dart';
+import '../auth/auth_storage_keys.dart';
 
 /// Auth state notifier for GoRouter
 class AuthNotifier extends ChangeNotifier {
-  static const String _tokenKey = 'access_token';
+  static const String _tokenKey = AuthStorageKeys.accessToken;
 
   bool _isLoggedIn = false;
   bool get isLoggedIn => _isLoggedIn;
 
   Future<void> checkAuthStatus() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(_tokenKey);
-    _isLoggedIn = token != null;
+    // access_token が期限切れでも refresh_token があれば復元できるようにする
+    final ok = await ApiClient().ensureValidSession();
+    if (ok) {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString(_tokenKey);
+      _isLoggedIn = token != null && token.isNotEmpty;
+    } else {
+      _isLoggedIn = false;
+    }
     notifyListeners();
   }
 
@@ -36,21 +45,25 @@ class AppRouter {
 
   static final GoRouter router = GoRouter(
     navigatorKey: _rootNavigatorKey,
-    initialLocation: '/login',
+    // セッションが残っていればログイン画面をスキップしたいので、まず保護ルートへ
+    initialLocation: '/home',
     refreshListenable: authNotifier,
     redirect: (context, state) async {
       final path = state.uri.path;
 
       // Login and setup pages - no redirect needed
-      if (path == '/login' || path == '/setup') {
-        return null;
+      // NOTE: 起動直後は状態が不明なことがあるので、ここで最小限のセッション復元を行う
+      if (!authNotifier.isLoggedIn) {
+        await authNotifier.checkAuthStatus();
       }
 
-      // Check auth for protected routes
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('access_token');
+      // ログイン済みならログイン画面はスキップ
+      if (authNotifier.isLoggedIn && (path == '/login')) {
+        return '/home';
+      }
 
-      if (token == null) {
+      // 未ログインなら保護ルートはログインへ
+      if (!authNotifier.isLoggedIn && path != '/login' && path != '/setup') {
         return '/login';
       }
 
@@ -93,6 +106,12 @@ class AppRouter {
             ),
           ),
           GoRoute(
+            path: '/photos',
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: PhotosPage(),
+            ),
+          ),
+          GoRoute(
             path: '/settings',
             pageBuilder: (context, state) => const NoTransitionPage(
               child: SettingsPage(),
@@ -116,7 +135,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
-  static const _routes = ['/home', '/food', '/muscle', '/settings'];
+  static const _routes = ['/home', '/food', '/muscle', '/photos', '/settings'];
 
   @override
   void didChangeDependencies() {
@@ -159,7 +178,8 @@ class _MainShellState extends State<MainShell> {
                 _buildNavItem(0, Icons.home_outlined, Icons.home, 'ホーム'),
                 _buildNavItem(1, Icons.restaurant_outlined, Icons.restaurant, '食事'),
                 _buildNavItem(2, Icons.fitness_center_outlined, Icons.fitness_center, 'トレーニング'),
-                _buildNavItem(3, Icons.settings_outlined, Icons.settings, '設定'),
+                _buildNavItem(3, Icons.photo_library_outlined, Icons.photo_library, '写真'),
+                _buildNavItem(4, Icons.settings_outlined, Icons.settings, '設定'),
               ],
             ),
           ),

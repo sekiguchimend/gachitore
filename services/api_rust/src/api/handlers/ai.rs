@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::middleware::AuthUser,
     error::{AppError, AppResult},
+    infrastructure::supabase::AiMessage,
     state::{check_safety_flags, get_system_instruction, StateGenerator},
     AppState,
 };
@@ -91,6 +92,70 @@ pub async fn ask_ai(
     let state_gen = StateGenerator::new(&state.supabase, &user.token);
     let user_state = state_gen.generate(&user.user_id.clone(), today).await?;
 
+    // Resolve (or create) session before calling Gemini so we can fetch history
+    let session_id = if let Some(sid) = req.session_id.clone() {
+        // Verify session belongs to user (and exists)
+        let existing: Option<serde_json::Value> = state
+            .supabase
+            .select_single(
+                "ai_sessions",
+                &format!("id=eq.{}&user_id=eq.{}&select=id", sid, user.user_id),
+                &user.token,
+            )
+            .await?;
+        if existing.is_some() {
+            sid
+        } else {
+            // Create new session if the provided one is invalid/stale
+            let session_data = CreateAiSession {
+                user_id: user.user_id.clone(),
+                intent: "ask".to_string(),
+                model: state.config.gemini_model.clone(),
+                input_summary: Some(serde_json::json!({
+                    "state_version": user_state.version,
+                    "goal": user_state.profile.goal,
+                    "today_workout_count": user_state.today.workout_count,
+                })),
+                safety_flags: serde_json::to_value(&safety_flags).unwrap(),
+            };
+            let session: AiSessionResponse = state
+                .supabase
+                .insert("ai_sessions", &session_data, &user.token)
+                .await?;
+            session.id
+        }
+    } else {
+        // Create new session
+        let session_data = CreateAiSession {
+            user_id: user.user_id.clone(),
+            intent: "ask".to_string(),
+            model: state.config.gemini_model.clone(),
+            input_summary: Some(serde_json::json!({
+                "state_version": user_state.version,
+                "goal": user_state.profile.goal,
+                "today_workout_count": user_state.today.workout_count,
+            })),
+            safety_flags: serde_json::to_value(&safety_flags).unwrap(),
+        };
+        let session: AiSessionResponse = state
+            .supabase
+            .insert("ai_sessions", &session_data, &user.token)
+            .await?;
+        session.id
+    };
+
+    // Fetch recent conversation history (up to last 2 turns = max 4 messages)
+    let history_query = format!(
+        "session_id=eq.{}&select=*&order=created_at.desc&limit=4",
+        session_id
+    );
+    let mut recent_messages: Vec<AiMessage> = state
+        .supabase
+        .select("ai_messages", &history_query, &user.token)
+        .await
+        .unwrap_or_default();
+    recent_messages.reverse(); // oldest -> newest
+
     // Build prompt with state context
     let state_json = serde_json::to_string_pretty(&user_state)
         .map_err(|e| AppError::Internal(format!("Failed to serialize state: {}", e)))?;
@@ -109,28 +174,31 @@ pub async fn ask_ai(
     );
 
     // Get system instruction
-    let system_instruction = get_system_instruction(&user_state);
+    let mut system_instruction = get_system_instruction(&user_state);
+    if !recent_messages.is_empty() {
+        let history_text = recent_messages
+            .iter()
+            .map(|m| format!("- {}: {}", m.role, m.content))
+            .collect::<Vec<_>>()
+            .join("\n");
+        system_instruction.push_str(&format!(
+            r#"
+
+【直近の会話（最大2往復）】
+{}
+
+上の会話の流れを踏まえて、会話が自然につながるように回答して。"#,
+            history_text
+        ));
+    }
+
+    // Debug: Log prompts (debug level - not shown in production with RUST_LOG=info)
+    tracing::debug!("=== SYSTEM INSTRUCTION ===\n{}", system_instruction);
+    tracing::debug!("=== USER STATE ===\n{}", state_json);
+    tracing::debug!("=== PROMPT ===\n{}", prompt);
 
     // Call Gemini
     let gemini_response = state.gemini.generate(&prompt, Some(&system_instruction)).await?;
-
-    // Create AI session via Supabase REST API
-    let session_data = CreateAiSession {
-        user_id: user.user_id.clone(),
-        intent: "ask".to_string(),
-        model: state.config.gemini_model.clone(),
-        input_summary: Some(serde_json::json!({
-            "state_version": user_state.version,
-            "goal": user_state.profile.goal,
-            "today_workout_count": user_state.today.workout_count,
-        })),
-        safety_flags: serde_json::to_value(&safety_flags).unwrap(),
-    };
-    let session: AiSessionResponse = state
-        .supabase
-        .insert("ai_sessions", &session_data, &user.token)
-        .await?;
-    let session_id = session.id;
 
     // Save user message
     let user_message = CreateAiMessage {

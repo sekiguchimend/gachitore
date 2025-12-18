@@ -124,6 +124,13 @@ pub struct LogWorkoutResponse {
 // Handlers
 // =============================================================================
 
+// Allowed muscle group values (prevents injection)
+const ALLOWED_MUSCLE_GROUPS: &[&str] = &[
+    "chest", "back", "shoulders", "biceps", "triceps", "forearms",
+    "abs", "obliques", "quads", "hamstrings", "glutes", "calves",
+    "traps", "lats", "lower_back", "hip_flexors", "adductors", "abductors",
+];
+
 /// GET /exercises - Get all exercises
 pub async fn get_exercises(
     State(state): State<AppState>,
@@ -131,9 +138,13 @@ pub async fn get_exercises(
     Query(params): Query<ExercisesQuery>,
 ) -> AppResult<Json<Vec<ExerciseResponse>>> {
     let mut query = "select=id,name,name_en,primary_muscle,secondary_muscles,equipment".to_string();
-    
+
     if let Some(muscle_group) = &params.muscle_group {
-        query.push_str(&format!("&primary_muscle=eq.{}", muscle_group));
+        // Validate muscle_group to prevent injection
+        if ALLOWED_MUSCLE_GROUPS.contains(&muscle_group.as_str()) {
+            query.push_str(&format!("&primary_muscle=eq.{}", muscle_group));
+        }
+        // Invalid values are silently ignored (returns all exercises)
     }
     
     query.push_str("&order=name");
@@ -442,7 +453,10 @@ pub async fn log_workout(
         .insert("workouts", &workout_data, &user.token)
         .await?;
 
-    // Insert exercises and sets
+    // Collect all exercises and sets for batch insert
+    let mut exercise_data_list: Vec<serde_json::Value> = Vec::new();
+    let mut set_data_list: Vec<serde_json::Value> = Vec::new();
+
     for (order, exercise) in req.exercises.iter().enumerate() {
         let exercise_entry_id = Uuid::new_v4().to_string();
 
@@ -460,12 +474,9 @@ pub async fn log_workout(
             "exercise_order": order as i32
         });
 
-        let _: serde_json::Value = state
-            .supabase
-            .insert("workout_exercises", &exercise_data, &user.token)
-            .await?;
+        exercise_data_list.push(exercise_data);
 
-        // Insert sets
+        // Collect sets for this exercise
         for (set_idx, set) in exercise.sets.iter().enumerate() {
             let set_data = serde_json::json!({
                 "id": Uuid::new_v4().to_string(),
@@ -479,12 +490,21 @@ pub async fn log_workout(
                 "is_dropset": set.is_dropset.unwrap_or(false)
             });
 
-            let _: serde_json::Value = state
-                .supabase
-                .insert("workout_sets", &set_data, &user.token)
-                .await?;
+            set_data_list.push(set_data);
         }
     }
+
+    // Batch insert exercises (1 query instead of N)
+    state
+        .supabase
+        .insert_batch("workout_exercises", &exercise_data_list, &user.token)
+        .await?;
+
+    // Batch insert sets (1 query instead of M)
+    state
+        .supabase
+        .insert_batch("workout_sets", &set_data_list, &user.token)
+        .await?;
 
     Ok(Json(LogWorkoutResponse {
         workout_id,

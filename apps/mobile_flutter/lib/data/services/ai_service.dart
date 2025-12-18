@@ -46,6 +46,17 @@ class AiService {
     }
   }
 
+  /// Get unread inbox messages (bot notifications)
+  Future<List<AiInboxMessage>> getInboxMessages() async {
+    try {
+      final response = await _apiClient.get('/ai/inbox');
+      final list = response.data as List;
+      return list.map((m) => AiInboxMessage.fromJson(m)).toList();
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
   /// Quick actions - predefined prompts
   Future<AskResponse> getTodayMenu() async {
     return askAi(AskRequest(

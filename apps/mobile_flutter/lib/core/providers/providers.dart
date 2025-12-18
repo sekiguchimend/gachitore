@@ -5,6 +5,7 @@ import '../../data/services/dashboard_service.dart';
 import '../../data/services/workout_service.dart';
 import '../../data/services/meal_service.dart';
 import '../../data/services/ai_service.dart';
+import '../../data/services/photo_service.dart';
 
 // API client provider
 final apiClientProvider = Provider<ApiClient>((ref) {
@@ -42,6 +43,13 @@ final mealServiceProvider = Provider<MealService>((ref) {
 // AI service provider
 final aiServiceProvider = Provider<AiService>((ref) {
   return AiService(
+    apiClient: ref.watch(apiClientProvider),
+  );
+});
+
+// Photo service provider
+final photoServiceProvider = Provider<PhotoService>((ref) {
+  return PhotoService(
     apiClient: ref.watch(apiClientProvider),
   );
 });

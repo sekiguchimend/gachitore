@@ -32,10 +32,10 @@ class _SetupPageState extends ConsumerState<SetupPage> {
   int _mealsPerDay = 3;
 
   final _goals = [
-    {'id': 'cut', 'label': 'ダイエット', 'icon': Icons.trending_down},
-    {'id': 'hypertrophy', 'label': '増量', 'icon': Icons.trending_up},
-    {'id': 'strength', 'label': '絞り', 'icon': Icons.fitness_center},
-    {'id': 'health', 'label': '健康', 'icon': Icons.favorite},
+    {'id': 'hypertrophy', 'label': '筋肥大', 'icon': Icons.trending_up},
+    {'id': 'cut', 'label': '減量', 'icon': Icons.trending_down},
+    {'id': 'strength', 'label': 'パワー向上', 'icon': Icons.fitness_center},
+    {'id': 'health', 'label': '健康維持', 'icon': Icons.favorite},
   ];
 
   final _levels = [
@@ -115,6 +115,21 @@ class _SetupPageState extends ConsumerState<SetupPage> {
         environment = 'home';
       }
 
+      // 日本語の器具名を英語に変換
+      final equipmentMapping = {
+        'ダンベル': 'dumbbell',
+        'バーベル': 'barbell',
+        'ベンチ': 'bench',
+        'ケーブル': 'cable',
+        'マシン': 'machine',
+        'チンニングバー': 'pullup_bar',
+        'ケトルベル': 'kettlebell',
+        'バンド': 'band',
+      };
+      final equipment = _selectedEquipment
+          .map((e) => equipmentMapping[e] ?? e.toLowerCase())
+          .toList();
+
       // Combine equipment and constraints
       final constraints = _selectedConstraints.toList();
 
@@ -126,7 +141,9 @@ class _SetupPageState extends ConsumerState<SetupPage> {
         age: age,
         sex: _selectedSex,
         environment: environment,
+        equipment: equipment,
         constraints: constraints,
+        mealsPerDay: _mealsPerDay,
       );
 
       if (mounted) {
