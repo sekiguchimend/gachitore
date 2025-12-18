@@ -43,7 +43,7 @@ extension _FoodPageSections on _FoodPageState {
                   ),
                   IconButton(
                     onPressed: () {
-                      // TODO: Open camera for food recognition
+                      _showPhotoAddSheet();
                     },
                     icon: const Icon(
                       Icons.camera_alt_outlined,

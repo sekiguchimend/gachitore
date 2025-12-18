@@ -33,6 +33,17 @@ class PhotoService {
     return uploadPhotoFile(picked);
   }
 
+  /// Pick from gallery and upload
+  Future<UploadPhotoResponse?> pickFromGalleryAndUploadPhoto() async {
+    final picked = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 92,
+    );
+    if (picked == null) return null;
+
+    return uploadPhotoFile(picked);
+  }
+
   Future<UploadPhotoResponse> uploadPhotoFile(XFile file) async {
     try {
       final bytes = await file.readAsBytes();

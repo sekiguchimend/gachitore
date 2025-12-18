@@ -11,7 +11,7 @@ class ApiClient {
 
   late final Dio _dio;
   SharedPreferences? _prefs;
-  bool _isRefreshing = false;
+  Future<void>? _initFuture;
   Future<bool>? _refreshFuture;
   Timer? _autoRefreshTimer;
 
@@ -24,6 +24,9 @@ class ApiClient {
 
   ApiClient._internal() {
     _dio = Dio(BaseOptions(
+      // Default to localhost for development (Rust API on port 8080)
+      // initialize() will override this if a custom URL is saved.
+      baseUrl: 'http://localhost:8080/v1',
       connectTimeout: const Duration(seconds: 30),
       receiveTimeout: const Duration(seconds: 30),
       headers: {
@@ -80,16 +83,18 @@ class ApiClient {
 
   /// Try to refresh the access token using refresh token
   Future<bool> _tryRefreshToken() async {
-    // Prevent multiple simultaneous refresh attempts
-    if (_refreshFuture != null) {
-      return await _refreshFuture!;
-    }
+    // Prevent multiple simultaneous refresh attempts.
+    // NOTE: Previously this used a Completer but never completed it, which could deadlock
+    // if a second refresh attempt awaited the same future.
+    _refreshFuture ??= _performRefreshToken().whenComplete(() {
+      _refreshFuture = null;
+    });
+    return _refreshFuture!;
+  }
 
-    _isRefreshing = true;
-    final completer = Completer<bool>();
-    _refreshFuture = completer.future;
-
+  Future<bool> _performRefreshToken() async {
     try {
+      await initialize();
       final prefs = await _getPrefs();
       final refreshToken = prefs.getString(_refreshTokenKey);
 
@@ -128,11 +133,8 @@ class ApiClient {
       }
 
       return false;
-    } catch (e) {
+    } catch (_) {
       return false;
-    } finally {
-      _isRefreshing = false;
-      _refreshFuture = null;
     }
   }
 
@@ -143,6 +145,7 @@ class ApiClient {
   Future<bool> ensureValidSession({
     Duration leeway = const Duration(minutes: 2),
   }) async {
+    await initialize();
     final prefs = await _getPrefs();
     final accessToken = prefs.getString(_tokenKey);
     final refreshToken = prefs.getString(_refreshTokenKey);
@@ -235,13 +238,18 @@ class ApiClient {
   }
 
   Future<void> initialize() async {
+    // Idempotent: safe to call multiple times / from multiple code paths.
+    _initFuture ??= _initializeInternal().whenComplete(() {
+      _initFuture = null;
+    });
+    await _initFuture!;
+  }
+
+  Future<void> _initializeInternal() async {
     final prefs = await _getPrefs();
     final baseUrl = prefs.getString(_baseUrlKey);
-    if (baseUrl != null) {
+    if (baseUrl != null && baseUrl.isNotEmpty) {
       _dio.options.baseUrl = baseUrl;
-    } else {
-      // Default to localhost for development (Rust API on port 8080)
-      _dio.options.baseUrl = 'http://localhost:8080/v1';
     }
   }
 

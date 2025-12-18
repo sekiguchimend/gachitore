@@ -39,6 +39,8 @@ dependencies:
 
   # Charts
   fl_chart: ^0.69.0
+  firebase_core: ^4.3.0
+  firebase_messaging: ^16.1.0
   # Fonts
   # NOTE: Noto Sans JP is bundled as local assets (see flutter/fonts below) to avoid
   # network font download delays during splash/startup.

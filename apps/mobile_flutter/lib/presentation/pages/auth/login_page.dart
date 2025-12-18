@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
+import '../../../core/router/app_router.dart';
+import 'dart:async';
 import '../../widgets/common/app_button.dart';
 import '../../widgets/common/app_text_field.dart';
 
@@ -51,32 +53,20 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       final authService = ref.read(authServiceProvider);
 
       if (_isSignUp) {
-        final response = await authService.signUp(email: email, password: password);
-        // DEBUG: Show token info
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Token saved: ${response.accessToken.length} chars'),
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
-        // Verify token was saved
-        final savedToken = await authService.getToken();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Token read back: ${savedToken?.length ?? "NULL"} chars'),
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
+        await authService.signUp(email: email, password: password);
+        // GoRouterのredirectが未ログイン扱いのままだと/loginに戻されるので、
+        // ログイン状態を明示的に更新する
+        AppRouter.authNotifier.setLoggedIn(true);
+        unawaited(ref.read(pushNotificationServiceProvider).initializeAndSync(platform: 'app'));
         // After sign up, navigate to setup for onboarding
         if (mounted) {
           context.go('/setup');
         }
       } else {
         await authService.signIn(email: email, password: password);
+        // GoRouterのredirectが未ログイン扱いのままだと遷移できないため更新
+        AppRouter.authNotifier.setLoggedIn(true);
+        unawaited(ref.read(pushNotificationServiceProvider).initializeAndSync(platform: 'app'));
         // Check if onboarding is completed
         final isOnboarded = await authService.isOnboardingCompleted();
         if (mounted) {

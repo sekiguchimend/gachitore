@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../../../core/constants/app_colors.dart';
 
 class SplashPage extends StatefulWidget {
@@ -15,7 +16,9 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    print('[SplashPage] initState called - Splash screen is showing!');
+    if (kDebugMode) {
+      debugPrint('[SplashPage] initState called - Splash screen is showing');
+    }
 
     _controller = AnimationController(
       duration: const Duration(milliseconds: 800),

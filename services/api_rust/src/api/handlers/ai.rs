@@ -10,6 +10,38 @@ use crate::{
     AppState,
 };
 
+async fn send_chat_push_best_effort(
+    state: &AppState,
+    user_access_token: &str,
+    title: &str,
+    body: &str,
+    data: serde_json::Value,
+) {
+    let fn_url = format!(
+        "{}/functions/v1/send-chat-push",
+        state.config.supabase_url.trim_end_matches('/')
+    );
+
+    let payload = serde_json::json!({
+        "title": title,
+        "body": body,
+        "data": data,
+    });
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post(&fn_url)
+        .header("Authorization", format!("Bearer {}", user_access_token))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await;
+
+    if let Err(e) = res {
+        tracing::warn!("send-chat-push failed: {}", e);
+    }
+}
+
 // =============================================================================
 // POST /v1/ai/ask - Ask AI coach a question
 // =============================================================================
@@ -222,6 +254,19 @@ pub async fn ask_ai(
         .insert("ai_messages", &ai_message, &user.token)
         .await?;
 
+    // Push notification (best-effort)
+    send_chat_push_best_effort(
+        &state,
+        &user.token,
+        "ガチトレAI",
+        &gemini_response.answer_text,
+        serde_json::json!({
+            "session_id": session_id,
+            "kind": "ai_reply"
+        }),
+    )
+    .await;
+
     // Save recommendations
     let mut recommendations = Vec::new();
     for rec in &gemini_response.recommendations {
@@ -407,6 +452,19 @@ pub async fn plan_today(
         .supabase
         .insert("ai_messages", &ai_message, &user.token)
         .await?;
+
+    // Push notification (best-effort)
+    send_chat_push_best_effort(
+        &state,
+        &user.token,
+        "ガチトレAI",
+        &gemini_response.answer_text,
+        serde_json::json!({
+            "session_id": session_id,
+            "kind": "ai_plan"
+        }),
+    )
+    .await;
 
     // Save recommendation
     let rec_data = CreateAiRecommendation {

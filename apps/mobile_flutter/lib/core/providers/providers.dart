@@ -6,6 +6,7 @@ import '../../data/services/workout_service.dart';
 import '../../data/services/meal_service.dart';
 import '../../data/services/ai_service.dart';
 import '../../data/services/photo_service.dart';
+import '../../data/services/push_notification_service.dart';
 
 // API client provider
 final apiClientProvider = Provider<ApiClient>((ref) {
@@ -50,6 +51,13 @@ final aiServiceProvider = Provider<AiService>((ref) {
 // Photo service provider
 final photoServiceProvider = Provider<PhotoService>((ref) {
   return PhotoService(
+    apiClient: ref.watch(apiClientProvider),
+  );
+});
+
+// Push notification service provider (FCM token sync)
+final pushNotificationServiceProvider = Provider<PushNotificationService>((ref) {
+  return PushNotificationService(
     apiClient: ref.watch(apiClientProvider),
   );
 });

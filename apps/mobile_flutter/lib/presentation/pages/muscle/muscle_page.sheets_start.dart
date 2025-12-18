@@ -1,6 +1,16 @@
 part of 'muscle_page.dart';
 
 extension _MusclePageSheetsStart on _MusclePageState {
+  // テンプレート名から対応する筋肉グループへのマッピング
+  static const Map<String, List<String>> _templateToMuscles = {
+    '胸・三頭': ['chest', 'triceps'],
+    '背中・二頭': ['back', 'biceps'],
+    '脚': ['quadriceps', 'hamstrings', 'glutes', 'calves'],
+    '肩': ['shoulder'],
+    'Push': ['chest', 'shoulder', 'triceps'],
+    'Pull': ['back', 'biceps'],
+  };
+
   void _showStartWorkoutSheet() {
     showModalBottomSheet(
       context: context,
@@ -10,7 +20,7 @@ extension _MusclePageSheetsStart on _MusclePageState {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => DraggableScrollableSheet(
+      builder: (sheetContext) => DraggableScrollableSheet(
         initialChildSize: 0.7,
         minChildSize: 0.5,
         maxChildSize: 0.9,
@@ -54,37 +64,44 @@ extension _MusclePageSheetsStart on _MusclePageState {
                   controller: scrollController,
                   children: [
                     _buildWorkoutTemplate(
+                      sheetContext,
                       '空のワークアウト',
                       '種目を自由に追加',
                       Icons.add_circle_outline,
                       isEmpty: true,
                     ),
                     _buildWorkoutTemplate(
+                      sheetContext,
                       '胸・三頭',
                       'ベンチプレス、ダンベルフライなど',
                       Icons.favorite_outline,
                     ),
                     _buildWorkoutTemplate(
+                      sheetContext,
                       '背中・二頭',
                       'デッドリフト、ラットプルなど',
                       Icons.sync_alt,
                     ),
                     _buildWorkoutTemplate(
+                      sheetContext,
                       '脚',
                       'スクワット、レッグプレスなど',
                       Icons.directions_walk,
                     ),
                     _buildWorkoutTemplate(
+                      sheetContext,
                       '肩',
                       'OHP、サイドレイズなど',
                       Icons.arrow_upward,
                     ),
                     _buildWorkoutTemplate(
+                      sheetContext,
                       'Push',
                       '押す動作の種目',
                       Icons.arrow_forward,
                     ),
                     _buildWorkoutTemplate(
+                      sheetContext,
                       'Pull',
                       '引く動作の種目',
                       Icons.arrow_back,
@@ -100,6 +117,7 @@ extension _MusclePageSheetsStart on _MusclePageState {
   }
 
   Widget _buildWorkoutTemplate(
+    BuildContext sheetContext,
     String name,
     String description,
     IconData icon, {
@@ -107,12 +125,21 @@ extension _MusclePageSheetsStart on _MusclePageState {
   }) {
     return GestureDetector(
       onTap: () {
-        Navigator.pop(context);
-        if (isEmpty) {
-          _showExerciseSelectionSheet();
-        } else {
-          // TODO: Start workout with template
-        }
+        Navigator.of(sheetContext).pop();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            if (isEmpty) {
+              _showExerciseSelectionSheet();
+            } else {
+              // テンプレートに対応する筋肉グループでフィルタリング
+              final targetMuscles = _templateToMuscles[name] ?? [];
+              _showExerciseSelectionSheet(
+                templateName: name,
+                filterMuscles: targetMuscles,
+              );
+            }
+          }
+        });
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -170,7 +197,10 @@ extension _MusclePageSheetsStart on _MusclePageState {
     );
   }
 
-  void _showExerciseSelectionSheet() {
+  void _showExerciseSelectionSheet({
+    String? templateName,
+    List<String>? filterMuscles,
+  }) {
     int selectedFilter = 0;
     String searchQuery = '';
 
@@ -182,10 +212,17 @@ extension _MusclePageSheetsStart on _MusclePageState {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => StatefulBuilder(
+      builder: (sheetContext) => StatefulBuilder(
         builder: (context, setSheetState) {
-          // フィルタリング: 検索 + 部位
+          // フィルタリング: 検索 + 部位（またはテンプレート）
           List<Exercise> filtered = _exercises;
+
+          // テンプレートが指定されている場合は、テンプレートの筋肉グループでフィルタリング
+          if (filterMuscles != null && filterMuscles.isNotEmpty) {
+            filtered = filtered
+                .where((e) => filterMuscles.contains(e.muscleGroup))
+                .toList();
+          }
 
           if (searchQuery.isNotEmpty) {
             filtered = filtered
@@ -194,7 +231,8 @@ extension _MusclePageSheetsStart on _MusclePageState {
                 .toList();
           }
 
-          if (selectedFilter > 0) {
+          // テンプレートが指定されていない場合のみ、部位フィルターを適用
+          if (filterMuscles == null && selectedFilter > 0) {
             final group = _muscleGroups[selectedFilter];
             final targetMuscles = _MusclePageState._muscleJaToEn[group] ?? [];
             filtered = filtered
@@ -225,17 +263,33 @@ extension _MusclePageSheetsStart on _MusclePageState {
                       const SizedBox(height: 16),
                       Row(
                         children: [
-                          const Text(
-                            '種目を選択',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textPrimary,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  templateName != null
+                                      ? '$templateName - 種目を選択'
+                                      : '種目を選択',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                if (templateName != null)
+                                  Text(
+                                    '${filtered.length}件の種目',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textTertiary,
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
-                          const Spacer(),
                           IconButton(
-                            onPressed: () => Navigator.pop(context),
+                            onPressed: () => Navigator.of(sheetContext).pop(),
                             icon: const Icon(Icons.close,
                                 color: AppColors.textSecondary),
                           ),
@@ -268,44 +322,46 @@ extension _MusclePageSheetsStart on _MusclePageState {
                     ],
                   ),
                 ),
-                // 部位フィルター
-                SizedBox(
-                  height: 40,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: _muscleGroups.length,
-                    itemBuilder: (context, index) {
-                      final isSelected = selectedFilter == index;
-                      return GestureDetector(
-                        onTap: () =>
-                            setSheetState(() => selectedFilter = index),
-                        child: Container(
-                          margin: const EdgeInsets.only(right: 8),
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? AppColors.greenPrimary
-                                : AppColors.bgSub,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            _muscleGroups[index],
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                // 部位フィルター（テンプレートが指定されていない場合のみ表示）
+                if (templateName == null) ...[
+                  SizedBox(
+                    height: 40,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _muscleGroups.length,
+                      itemBuilder: (context, index) {
+                        final isSelected = selectedFilter == index;
+                        return GestureDetector(
+                          onTap: () =>
+                              setSheetState(() => selectedFilter = index),
+                          child: Container(
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            decoration: BoxDecoration(
                               color: isSelected
-                                  ? AppColors.textPrimary
-                                  : AppColors.textSecondary,
+                                  ? AppColors.greenPrimary
+                                  : AppColors.bgSub,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              _muscleGroups[index],
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: isSelected
+                                    ? AppColors.textPrimary
+                                    : AppColors.textSecondary,
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
+                  const SizedBox(height: 12),
+                ],
                 // 種目リスト
                 Expanded(
                   child: filtered.isEmpty
@@ -327,8 +383,12 @@ extension _MusclePageSheetsStart on _MusclePageState {
                             final exercise = filtered[index];
                             return GestureDetector(
                               onTap: () {
-                                Navigator.pop(context);
-                                _showLogSetSheet(exercise);
+                                Navigator.of(sheetContext).pop();
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  if (mounted) {
+                                    _showLogSetSheet(exercise);
+                                  }
+                                });
                               },
                               child: Container(
                                 margin: const EdgeInsets.only(bottom: 8),

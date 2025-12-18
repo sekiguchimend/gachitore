@@ -8,9 +8,129 @@ use axum::{
 };
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::{error::AppError, AppState};
+
+// =============================================================================
+// JWKS (for ES256/RS256)
+// =============================================================================
+
+#[derive(Debug, Clone)]
+pub struct CachedJwks {
+    pub jwks: Jwks,
+    pub fetched_at: Instant,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Jwks {
+    pub keys: Vec<Jwk>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Jwk {
+    pub kid: Option<String>,
+    pub kty: String,
+    pub alg: Option<String>,
+    pub crv: Option<String>,
+    // EC
+    pub x: Option<String>,
+    pub y: Option<String>,
+    // RSA
+    pub n: Option<String>,
+    pub e: Option<String>,
+    // Optional fields we don't currently use:
+    // use, key_ops, x5c, x5t, etc.
+}
+
+const JWKS_TTL: Duration = Duration::from_secs(600);
+
+async fn get_jwks(state: &AppState) -> Result<Jwks, AppError> {
+    // Fast path: fresh cache
+    {
+        let guard = state.jwks_cache.read().await;
+        if let Some(cached) = guard.as_ref() {
+            if cached.fetched_at.elapsed() < JWKS_TTL {
+                return Ok(cached.jwks.clone());
+            }
+        }
+    }
+
+    // Fetch JWKS
+    let url = state.config.supabase_jwks_url.clone();
+    tracing::debug!("Fetching Supabase JWKS: {}", url);
+
+    let client = reqwest::Client::new();
+    let jwks = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::InvalidToken(format!("Failed to fetch JWKS: {}", e)))?
+        .json::<Jwks>()
+        .await
+        .map_err(|e| AppError::InvalidToken(format!("Failed to parse JWKS: {}", e)))?;
+
+    // Update cache
+    {
+        let mut guard = state.jwks_cache.write().await;
+        *guard = Some(CachedJwks {
+            jwks: jwks.clone(),
+            fetched_at: Instant::now(),
+        });
+    }
+
+    Ok(jwks)
+}
+
+fn decoding_key_from_jwk(jwk: &Jwk, alg: Algorithm) -> Result<DecodingKey, AppError> {
+    match alg {
+        Algorithm::ES256 | Algorithm::ES384 => {
+            if jwk.kty != "EC" {
+                return Err(AppError::InvalidToken(format!(
+                    "JWKS key type mismatch: expected EC, got {}",
+                    jwk.kty
+                )));
+            }
+            let x = jwk
+                .x
+                .as_deref()
+                .ok_or_else(|| AppError::InvalidToken("JWKS EC key missing x".to_string()))?;
+            let y = jwk
+                .y
+                .as_deref()
+                .ok_or_else(|| AppError::InvalidToken("JWKS EC key missing y".to_string()))?;
+
+            // jsonwebtoken expects base64url-encoded coordinates as provided by JWKS
+            DecodingKey::from_ec_components(x, y).map_err(|e| {
+                AppError::InvalidToken(format!("Invalid JWKS EC key components: {}", e))
+            })
+        }
+        Algorithm::RS256 | Algorithm::RS384 | Algorithm::RS512 => {
+            if jwk.kty != "RSA" {
+                return Err(AppError::InvalidToken(format!(
+                    "JWKS key type mismatch: expected RSA, got {}",
+                    jwk.kty
+                )));
+            }
+            let n = jwk
+                .n
+                .as_deref()
+                .ok_or_else(|| AppError::InvalidToken("JWKS RSA key missing n".to_string()))?;
+            let e = jwk
+                .e
+                .as_deref()
+                .ok_or_else(|| AppError::InvalidToken("JWKS RSA key missing e".to_string()))?;
+            DecodingKey::from_rsa_components(n, e).map_err(|e| {
+                AppError::InvalidToken(format!("Invalid JWKS RSA key components: {}", e))
+            })
+        }
+        _ => Err(AppError::InvalidToken(format!(
+            "Unsupported algorithm for JWKS validation: {:?}",
+            alg
+        ))),
+    }
+}
 
 /// JWT Claims from Supabase Auth
 #[derive(Debug, Serialize, Deserialize)]
@@ -60,7 +180,7 @@ impl FromRequestParts<AppState> for AuthUser {
             .ok_or(AppError::InvalidToken("Missing Bearer prefix".to_string()))?;
 
         // Validate JWT
-        let claims = validate_jwt(token, &state.config.supabase_jwt_secret)?;
+        let claims = validate_jwt(token, state).await?;
 
         Ok(AuthUser {
             user_id: claims.sub.to_string(),
@@ -100,7 +220,7 @@ pub async fn auth_middleware(
     tracing::debug!("Token received (length: {})", token.len());
 
     // Validate JWT
-    match validate_jwt(token, &state.config.supabase_jwt_secret) {
+    match validate_jwt(token, &state).await {
         Ok(claims) => {
             tracing::debug!("JWT validated for user: {}", claims.sub);
             let auth_user = AuthUser {
@@ -123,7 +243,7 @@ pub async fn auth_middleware(
 }
 
 /// Validate JWT token and extract claims
-fn validate_jwt(token: &str, secret: &str) -> Result<Claims, AppError> {
+async fn validate_jwt(token: &str, state: &AppState) -> Result<Claims, AppError> {
     // Decode header to determine algorithm
     let header = decode_header(token).map_err(|e| {
         tracing::error!("Failed to decode JWT header: {:?}", e);
@@ -134,25 +254,48 @@ fn validate_jwt(token: &str, secret: &str) -> Result<Claims, AppError> {
 
     let mut validation = Validation::new(header.alg);
     validation.set_audience(&["authenticated"]);
+    // Supabase access tokens have iss like: https://<project-ref>.supabase.co/auth/v1
+    let issuer = format!("{}/auth/v1", state.config.supabase_url.trim_end_matches('/'));
+    validation.set_issuer(&[issuer]);
     validation.validate_exp = true;
 
     let key = match header.alg {
         Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
             // HMAC algorithms use the secret directly
-            DecodingKey::from_secret(secret.as_bytes())
+            if state.config.supabase_jwt_secret.is_empty() {
+                return Err(AppError::InvalidToken(
+                    "HS* token received but SUPABASE_JWT_SECRET is not configured".to_string(),
+                ));
+            }
+            DecodingKey::from_secret(state.config.supabase_jwt_secret.as_bytes())
         }
         Algorithm::ES256 | Algorithm::ES384 => {
-            // ECDSA algorithms require JWKS validation which is not implemented
-            // Supabase typically uses HS256 with JWT secret
-            // If you receive ES256/ES384 tokens, implement JWKS fetching from:
-            // https://<your-project>.supabase.co/auth/v1/.well-known/jwks.json
-            tracing::error!(
-                "Unsupported JWT algorithm {:?}. Configure Supabase to use HS256 or implement JWKS validation.",
-                header.alg
-            );
-            return Err(AppError::InvalidToken(
-                "ES256/ES384 algorithms require JWKS validation. Please use HS256.".to_string()
-            ));
+            let kid = header.kid.clone().ok_or_else(|| {
+                AppError::InvalidToken("ES* token missing kid in header".to_string())
+            })?;
+            let jwks = get_jwks(state).await?;
+            let jwk = jwks
+                .keys
+                .iter()
+                .find(|k| k.kid.as_deref() == Some(kid.as_str()))
+                .ok_or_else(|| {
+                    AppError::InvalidToken(format!("No matching JWKS key for kid={}", kid))
+                })?;
+            decoding_key_from_jwk(jwk, header.alg)?
+        }
+        Algorithm::RS256 | Algorithm::RS384 | Algorithm::RS512 => {
+            let kid = header.kid.clone().ok_or_else(|| {
+                AppError::InvalidToken("RS* token missing kid in header".to_string())
+            })?;
+            let jwks = get_jwks(state).await?;
+            let jwk = jwks
+                .keys
+                .iter()
+                .find(|k| k.kid.as_deref() == Some(kid.as_str()))
+                .ok_or_else(|| {
+                    AppError::InvalidToken(format!("No matching JWKS key for kid={}", kid))
+                })?;
+            decoding_key_from_jwk(jwk, header.alg)?
         }
         _ => {
             tracing::error!("Unsupported JWT algorithm: {:?}", header.alg);

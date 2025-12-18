@@ -12,6 +12,7 @@ use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::sync::RwLock;
 use axum::http::{header, Method};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -23,6 +24,7 @@ pub struct AppState {
     pub supabase: SupabaseClient,
     pub gemini: GeminiClient,
     pub config: Arc<Config>,
+    pub jwks_cache: Arc<RwLock<Option<api::middleware::CachedJwks>>>,
 }
 
 #[tokio::main]
@@ -58,6 +60,7 @@ async fn main() -> anyhow::Result<()> {
         supabase,
         gemini,
         config: Arc::new(config),
+        jwks_cache: Arc::new(RwLock::new(None)),
     };
 
     // Build CORS layer with restricted origins

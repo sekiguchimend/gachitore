@@ -9,7 +9,7 @@ extension _MusclePageSheetsDetail on _MusclePageState {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => Container(
+      builder: (sheetContext) => Container(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -74,7 +74,7 @@ extension _MusclePageSheetsDetail on _MusclePageState {
                     text: '履歴を見る',
                     icon: Icons.history,
                     onPressed: () {
-                      Navigator.pop(context);
+                      Navigator.of(sheetContext).pop();
                       // TODO: Show history
                     },
                   ),
@@ -85,8 +85,12 @@ extension _MusclePageSheetsDetail on _MusclePageState {
                     text: '記録する',
                     icon: Icons.add,
                     onPressed: () {
-                      Navigator.pop(context);
-                      _showLogSetSheet(exercise);
+                      Navigator.of(sheetContext).pop();
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) {
+                          _showLogSetSheet(exercise);
+                        }
+                      });
                     },
                   ),
                 ),
@@ -116,7 +120,7 @@ extension _MusclePageSheetsDetail on _MusclePageState {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => StatefulBuilder(
+      builder: (sheetContext) => StatefulBuilder(
         builder: (context, setSheetState) => Padding(
           padding: EdgeInsets.only(
             left: 24,
@@ -240,7 +244,7 @@ extension _MusclePageSheetsDetail on _MusclePageState {
                     final reps = int.tryParse(repsController.text);
 
                     if (weight == null || reps == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      ScaffoldMessenger.of(sheetContext).showSnackBar(
                         const SnackBar(
                           content: Text('重量と回数を入力してください'),
                         ),
@@ -273,8 +277,8 @@ extension _MusclePageSheetsDetail on _MusclePageState {
                       );
 
                       if (mounted) {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        Navigator.of(sheetContext).pop();
+                        ScaffoldMessenger.of(sheetContext).showSnackBar(
                           const SnackBar(
                             content: Text('記録しました'),
                           ),
@@ -284,7 +288,7 @@ extension _MusclePageSheetsDetail on _MusclePageState {
                     } catch (e) {
                       setSheetState(() => isLogging = false);
                       if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        ScaffoldMessenger.of(sheetContext).showSnackBar(
                           const SnackBar(
                             content: Text('記録に失敗しました'),
                           ),

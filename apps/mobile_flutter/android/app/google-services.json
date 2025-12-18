@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "490911604718",
+    "project_id": "gachitore-4d74d",
+    "storage_bucket": "gachitore-4d74d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:490911604718:android:b494c64ac425ca608478ff",
+        "android_client_info": {
+          "package_name": "com.gachtore.gachitore"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCxGtv9PDYpgRATQ9VcYUO-M5WCU0bRiZQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

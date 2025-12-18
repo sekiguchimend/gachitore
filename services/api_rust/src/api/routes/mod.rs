@@ -46,6 +46,10 @@ fn users_routes(state: AppState) -> Router<AppState> {
         .route("/profile", get(handlers::get_profile).patch(handlers::update_profile))
         .route("/onboarding/status", get(handlers::get_onboarding_status))
         .route("/onboarding/complete", post(handlers::complete_onboarding))
+        .route(
+            "/push-token",
+            post(handlers::upsert_push_token).delete(handlers::delete_push_token),
+        )
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 

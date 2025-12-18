@@ -8,6 +8,9 @@ import '../../widgets/common/app_button.dart';
 part 'food_page.sections.dart';
 part 'food_page.meals.dart';
 part 'food_page.add_meal_sheet.dart';
+part 'food_page.manual_input_sheet.dart';
+part 'food_page.food_search_sheet.dart';
+part 'food_page.photo_add_sheet.dart';
 
 class FoodPage extends ConsumerStatefulWidget {
   const FoodPage({super.key});
