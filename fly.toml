@@ -1,7 +1,8 @@
 app = "gachitore"
 
-# Fly will route traffic to the internal port your app listens on.
-# This API reads PORT from env (default 8080) and binds to 0.0.0.0.
+[build]
+  dockerfile = "services/api_rust/Dockerfile"
+
 [http_service]
   internal_port = 8080
   force_https = true
