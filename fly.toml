@@ -3,12 +3,14 @@ app = "gachitore"
 [build]
   dockerfile = "services/api_rust/Dockerfile"
 
+[processes]
+  app = "/app/gachitore-api"
+
 [http_service]
   internal_port = 8080
   force_https = true
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
+  # デバッグのため一時的に常時1台起動（スケールtoゼロだと stopped になりやすく切り分けが難しい）
+  min_machines_running = 1
   processes = ["app"]
-
-

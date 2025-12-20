@@ -1,0 +1,15 @@
+**/target
+**/.dart_tool
+**/build
+**/.gradle
+**/.idea
+**/.vscode
+**/*.log
+.git
+.github
+.env
+
+# Monorepo: exclude large non-backend areas from Docker context
+apps/mobile_flutter
+
+

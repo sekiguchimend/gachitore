@@ -4,12 +4,12 @@ FROM rust:1.83-bookworm AS builder
 WORKDIR /app
 
 # Cache dependencies
-COPY Cargo.toml Cargo.lock ./
+COPY services/api_rust/Cargo.toml services/api_rust/Cargo.lock ./
 RUN mkdir -p src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release
 
 # Build actual binary
-COPY src ./src
+COPY services/api_rust/src ./src
 RUN cargo build --release
 
 FROM debian:bookworm-slim AS runtime
