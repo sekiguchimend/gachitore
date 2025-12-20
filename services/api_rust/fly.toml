@@ -1,0 +1,13 @@
+app = "gachitore"
+
+# Fly will route traffic to the internal port your app listens on.
+# This API reads PORT from env (default 8080) and binds to 0.0.0.0.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+
