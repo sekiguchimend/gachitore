@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/auth/secure_token_storage.dart';
 import '../../../core/providers/providers.dart';
 import '../../../data/models/ai_models.dart';
 import '../../../data/models/dashboard_models.dart';
@@ -23,7 +24,8 @@ class HomePage extends ConsumerStatefulWidget {
 }
 
 class _HomePageState extends ConsumerState<HomePage> {
-  static const _chatStorageKey = 'chat_history_v1';
+  static const _legacyChatStorageKey = 'chat_history_v1';
+  static const _chatStorageKeyPrefix = 'chat_history_v1_';
   static const _chatMaxCount = 4;
 
   final _messageController = TextEditingController();
@@ -115,16 +117,47 @@ class _HomePageState extends ConsumerState<HomePage> {
     _saveChatHistory();
   }
 
+  Future<String> _currentChatStorageKey() async {
+    final userId = await SecureTokenStorage.getUserId();
+    if (userId == null || userId.isEmpty) return _legacyChatStorageKey;
+    return '$_chatStorageKeyPrefix$userId';
+  }
+
+  Future<void> _migrateLegacyChatHistoryIfNeeded() async {
+    try {
+      final userId = await SecureTokenStorage.getUserId();
+      if (userId == null || userId.isEmpty) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      final userKey = '$_chatStorageKeyPrefix$userId';
+      final hasUserKey = prefs.containsKey(userKey);
+      final legacy = prefs.getString(_legacyChatStorageKey);
+
+      // 旧キーがあり、ユーザー別キーが無い場合のみ移行する
+      if (!hasUserKey && legacy != null && legacy.isNotEmpty) {
+        await prefs.setString(userKey, legacy);
+      }
+
+      // 旧キーはアカウント切り替え時に漏れて見えるので削除する
+      if (prefs.containsKey(_legacyChatStorageKey)) {
+        await prefs.remove(_legacyChatStorageKey);
+      }
+    } catch (_) {
+      // ignore (migration is best-effort)
+    }
+  }
+
   Future<void> _saveChatHistory() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      final key = await _currentChatStorageKey();
       final persistable = _messages.where(_isPersistableChatMessage).toList();
       final trimmed = persistable.length <= _chatMaxCount
           ? persistable
           : persistable.sublist(persistable.length - _chatMaxCount);
       final encoded =
           jsonEncode(trimmed.map((m) => m.toJson()).toList(growable: false));
-      await prefs.setString(_chatStorageKey, encoded);
+      await prefs.setString(key, encoded);
     } catch (_) {
       // ignore (persistence is best-effort)
     }
@@ -133,7 +166,9 @@ class _HomePageState extends ConsumerState<HomePage> {
   Future<void> _loadChatHistory() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_chatStorageKey);
+      await _migrateLegacyChatHistoryIfNeeded();
+      final key = await _currentChatStorageKey();
+      final raw = prefs.getString(key);
       if (raw == null || raw.isEmpty) return;
 
       final decoded = jsonDecode(raw);
@@ -154,7 +189,8 @@ class _HomePageState extends ConsumerState<HomePage> {
       // If corrupted, clear it to avoid repeated exceptions.
       try {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.remove(_chatStorageKey);
+        final key = await _currentChatStorageKey();
+        await prefs.remove(key);
       } catch (_) {}
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
