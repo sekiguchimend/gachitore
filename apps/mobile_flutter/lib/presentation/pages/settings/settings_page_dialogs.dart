@@ -1,6 +1,39 @@
 part of 'settings_page.dart';
 
 extension _SettingsPageDialogs on _SettingsPageState {
+  Future<void> _logout() async {
+    // ログアウト時に「前ユーザーのキャッシュ」が残るのを防ぐ
+    final push = ref.read(pushNotificationServiceProvider);
+    final authService = ref.read(authServiceProvider);
+
+    try {
+      // 可能ならサーバー側の送信対象から外す（ベストエフォート）
+      await push.disablePush().timeout(const Duration(seconds: 2));
+    } catch (_) {
+      // ignore
+    }
+
+    try {
+      await authService.signOut();
+    } catch (_) {
+      // サーバー側signout失敗でもローカルの状態は落とす
+      await authService.signOut();
+    }
+
+    try {
+      // チャットの端末キャッシュをクリア（ユーザー別キー）
+      await ChatHistoryStorage.clearForCurrentUser();
+    } catch (_) {
+      // ignore
+    }
+
+    // ルータの認証状態も明示的に落とす（redirectの揺れ防止）
+    AppRouter.authNotifier.setLoggedIn(false);
+
+    if (!mounted) return;
+    context.go('/login');
+  }
+
   void _showGoalPicker() {
     _showPickerSheet(
       '目標を選択',
@@ -506,11 +539,7 @@ extension _SettingsPageDialogs on _SettingsPageState {
             onPressed: () async {
               Navigator.pop(context);
               try {
-                final authService = ref.read(authServiceProvider);
-                await authService.signOut();
-                if (mounted) {
-                  context.go('/login');
-                }
+                await _logout();
               } catch (e) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
