@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../presentation/pages/auth/login_page.dart';
 import '../../presentation/pages/setup/setup_page.dart';
 import '../../presentation/pages/home/home_page.dart';
@@ -9,14 +8,17 @@ import '../../presentation/pages/food/food_page.dart';
 import '../../presentation/pages/muscle/muscle_page.dart';
 import '../../presentation/pages/photos/photos_page.dart';
 import '../../presentation/pages/settings/settings_page.dart';
+import '../../presentation/pages/support/privacy_policy_page.dart';
+import '../../presentation/pages/support/support_contact_page.dart';
+import '../../presentation/pages/support/support_help_page.dart';
+import '../../presentation/pages/support/terms_of_service_page.dart';
 import '../constants/app_colors.dart';
 import '../api/api_client.dart';
-import '../auth/auth_storage_keys.dart';
+import '../auth/secure_token_storage.dart';
+import '../onboarding/onboarding_progress_storage.dart';
 
 /// Auth state notifier for GoRouter
 class AuthNotifier extends ChangeNotifier {
-  static const String _tokenKey = AuthStorageKeys.accessToken;
-
   bool _isLoggedIn = false;
   bool get isLoggedIn => _isLoggedIn;
 
@@ -36,6 +38,10 @@ class AuthNotifier extends ChangeNotifier {
     if (kDebugMode) {
       debugPrint('[Auth] checkAuthStatus start');
     }
+
+    // Migrate tokens from SharedPreferences to SecureStorage (one-time)
+    await SecureTokenStorage.migrateFromSharedPreferences();
+
     // access_token が期限切れでも refresh_token があれば復元できるようにする
     // NOTE: 起動時のネットワーク不調でGoRouterが固まらないようにタイムアウトを入れる
     final ok = await ApiClient()
@@ -43,11 +49,14 @@ class AuthNotifier extends ChangeNotifier {
         .timeout(const Duration(seconds: 5), onTimeout: () => false);
 
     if (ok) {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString(_tokenKey);
+      final token = await SecureTokenStorage.getAccessToken();
       _isLoggedIn = token != null && token.isNotEmpty;
     } else {
       _isLoggedIn = false;
+    }
+
+    if (!_isLoggedIn) {
+      OnboardingProgressStorage.resetMemory();
     }
 
     _hasChecked = true;
@@ -60,6 +69,9 @@ class AuthNotifier extends ChangeNotifier {
   void setLoggedIn(bool value) {
     _isLoggedIn = value;
     _hasChecked = true;
+    if (!value) {
+      OnboardingProgressStorage.resetMemory();
+    }
     notifyListeners();
   }
 }
@@ -85,12 +97,26 @@ class AppRouter {
 
       // ログイン済みならログイン画面はスキップ
       if (authNotifier.isLoggedIn && (path == '/login')) {
-        return '/home';
+        // オンボーディング未完了なら setup に飛ばす
+        final completed = await OnboardingProgressStorage.getCompleted();
+        return completed ? '/home' : '/setup';
       }
 
       // 未ログインなら保護ルートはログインへ
       if (!authNotifier.isLoggedIn && path != '/login' && path != '/setup') {
         return '/login';
+      }
+
+      // ログイン済みでオンボーディング未完了なら、/setup 以外へ行かせない
+      if (authNotifier.isLoggedIn) {
+        final completed = await OnboardingProgressStorage.getCompleted();
+        if (!completed && path != '/setup') {
+          return '/setup';
+        }
+        // 逆に完了済みなら /setup へ戻さない
+        if (completed && path == '/setup') {
+          return '/home';
+        }
       }
 
       return null;
@@ -104,6 +130,24 @@ class AppRouter {
       GoRoute(
         path: '/setup',
         builder: (context, state) => const SetupPage(),
+      ),
+
+      // Support routes (open from settings, hide bottom navigation)
+      GoRoute(
+        path: '/support/help',
+        builder: (context, state) => const SupportHelpPage(),
+      ),
+      GoRoute(
+        path: '/support/contact',
+        builder: (context, state) => const SupportContactPage(),
+      ),
+      GoRoute(
+        path: '/support/privacy',
+        builder: (context, state) => const PrivacyPolicyPage(),
+      ),
+      GoRoute(
+        path: '/support/terms',
+        builder: (context, state) => const TermsOfServicePage(),
       ),
 
       // Main app shell with bottom navigation

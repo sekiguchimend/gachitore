@@ -19,6 +19,9 @@ apps/mobile_flutter/*.iml
 apps/mobile_flutter/.idea/
 apps/mobile_flutter/.metadata
 
+# Firebase config (contains API keys - use firebase_options.dart.example as template)
+apps/mobile_flutter/lib/firebase_options.dart
+
 # macOS
 .DS_Store
 *.swp

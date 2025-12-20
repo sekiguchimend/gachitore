@@ -188,10 +188,10 @@ CREATE TABLE public.meal_items (
     quantity NUMERIC(8,2) NOT NULL DEFAULT 1,
     unit TEXT NOT NULL DEFAULT 'serving',
     calories INTEGER CHECK (calories IS NULL OR calories >= 0),
-    protein_g NUMERIC(6,2) CHECK (protein_g IS NULL OR protein_g >= 0),
-    fat_g NUMERIC(6,2) CHECK (fat_g IS NULL OR fat_g >= 0),
-    carbs_g NUMERIC(6,2) CHECK (carbs_g IS NULL OR carbs_g >= 0),
-    fiber_g NUMERIC(6,2) CHECK (fiber_g IS NULL OR fiber_g >= 0),
+    protein_g NUMERIC(10,2) CHECK (protein_g IS NULL OR protein_g >= 0),
+    fat_g NUMERIC(10,2) CHECK (fat_g IS NULL OR fat_g >= 0),
+    carbs_g NUMERIC(10,2) CHECK (carbs_g IS NULL OR carbs_g >= 0),
+    fiber_g NUMERIC(10,2) CHECK (fiber_g IS NULL OR fiber_g >= 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -210,7 +210,7 @@ CREATE TABLE public.nutrition_daily (
     protein_g NUMERIC(7,2) NOT NULL DEFAULT 0,
     fat_g NUMERIC(7,2) NOT NULL DEFAULT 0,
     carbs_g NUMERIC(7,2) NOT NULL DEFAULT 0,
-    fiber_g NUMERIC(6,2) NOT NULL DEFAULT 0,
+    fiber_g NUMERIC(10,2) NOT NULL DEFAULT 0,
     meals_logged INTEGER NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 

@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     api::middleware::AuthUser,
+    api::validation::{validate_date_ymd, validate_uuid},
     error::AppResult,
     AppState,
 };
@@ -34,6 +35,14 @@ pub struct ExerciseResponse {
     pub primary_muscle: String,
     pub secondary_muscles: Vec<String>,
     pub equipment: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateExerciseRequest {
+    pub name: String,
+    pub primary_muscle: String,
+    pub equipment: Option<String>,
+    pub secondary_muscles: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -71,6 +80,7 @@ pub struct WorkoutDetail {
 #[derive(Debug, Serialize)]
 pub struct WorkoutExerciseDetail {
     pub id: String,
+    pub exercise_id: Option<String>,
     pub exercise_name: String,
     pub muscle_tag: String,
     pub sets: Vec<WorkoutSetDetail>,
@@ -177,11 +187,15 @@ pub async fn get_exercises_with_stats(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
 ) -> AppResult<Json<Vec<ExerciseWithStats>>> {
-    // Get all system exercises
-    let exercises_query = "select=id,name,primary_muscle&is_system=eq.true&order=name";
+    // Get system exercises + user's custom exercises
+    // NOTE: user-defined exercises are stored with created_by=user_id and is_system=false
+    let exercises_query = format!(
+        "select=id,name,primary_muscle&or=(is_system.eq.true,created_by.eq.{})&order=name",
+        user.user_id
+    );
     let exercises: Vec<serde_json::Value> = state
         .supabase
-        .select("exercises", exercises_query, &user.token)
+        .select("exercises", &exercises_query, &user.token)
         .await?;
 
     // Get user's recent workout data (last 30 days)
@@ -261,6 +275,95 @@ pub async fn get_exercises_with_stats(
         .collect();
 
     Ok(Json(result))
+}
+
+/// POST /exercises - Create a user-defined exercise
+pub async fn create_exercise(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
+    Json(req): Json<CreateExerciseRequest>,
+) -> AppResult<Json<ExerciseResponse>> {
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(crate::error::AppError::Validation(
+            "Exercise name cannot be empty".to_string(),
+        ));
+    }
+    if name.len() > 80 {
+        return Err(crate::error::AppError::Validation(
+            "Exercise name is too long (max 80 chars)".to_string(),
+        ));
+    }
+
+    // Validate primary muscle to prevent injection
+    if !ALLOWED_MUSCLE_GROUPS.contains(&req.primary_muscle.as_str()) {
+        return Err(crate::error::AppError::Validation(format!(
+            "Invalid primary_muscle. Allowed: {:?}",
+            ALLOWED_MUSCLE_GROUPS
+        )));
+    }
+
+    // Validate equipment (optional)
+    const ALLOWED_EQUIPMENT: &[&str] = &[
+        "barbell",
+        "dumbbell",
+        "machine",
+        "cable",
+        "bodyweight",
+        "kettlebell",
+        "band",
+    ];
+    if let Some(eq) = req.equipment.as_deref() {
+        if !eq.is_empty() && !ALLOWED_EQUIPMENT.contains(&eq) {
+            return Err(crate::error::AppError::Validation(format!(
+                "Invalid equipment. Allowed: {:?}",
+                ALLOWED_EQUIPMENT
+            )));
+        }
+    }
+
+    // Secondary muscles (optional) must be in allowed list
+    if let Some(sec) = req.secondary_muscles.as_ref() {
+        if sec.len() > 8 {
+            return Err(crate::error::AppError::Validation(
+                "secondary_muscles is too long (max 8)".to_string(),
+            ));
+        }
+        for m in sec {
+            if !ALLOWED_MUSCLE_GROUPS.contains(&m.as_str()) {
+                return Err(crate::error::AppError::Validation(format!(
+                    "Invalid secondary_muscle: {}",
+                    m
+                )));
+            }
+        }
+    }
+
+    let exercise_data = serde_json::json!({
+        "name": name,
+        "primary_muscle": req.primary_muscle,
+        "secondary_muscles": req.secondary_muscles.unwrap_or_default(),
+        "equipment": req.equipment,
+        "is_system": false,
+        "created_by": user.user_id,
+    });
+
+    let created: serde_json::Value = state
+        .supabase
+        .insert("exercises", &exercise_data, &user.token)
+        .await?;
+
+    Ok(Json(ExerciseResponse {
+        id: created["id"].as_str().unwrap_or_default().to_string(),
+        name: created["name"].as_str().unwrap_or_default().to_string(),
+        name_en: created["name_en"].as_str().map(String::from),
+        primary_muscle: created["primary_muscle"].as_str().unwrap_or_default().to_string(),
+        secondary_muscles: created["secondary_muscles"]
+            .as_array()
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default(),
+        equipment: created["equipment"].as_str().map(String::from),
+    }))
 }
 
 /// GET /workouts - Get workout history
@@ -409,6 +512,7 @@ pub async fn get_workout_detail(
 
                     WorkoutExerciseDetail {
                         id: e["id"].as_str().unwrap_or_default().to_string(),
+                        exercise_id: e["exercise_id"].as_str().map(String::from),
                         exercise_name,
                         muscle_tag: e["muscle_tag"].as_str().unwrap_or_default().to_string(),
                         sets,
@@ -435,13 +539,54 @@ pub async fn log_workout(
     Extension(user): Extension<AuthUser>,
     Json(req): Json<LogWorkoutRequest>,
 ) -> AppResult<Json<LogWorkoutResponse>> {
+    // Validate date format (also prevents storing unexpected strings)
+    let date_str = validate_date_ymd(&req.date)?.format("%Y-%m-%d").to_string();
+
+    // Basic size limits to reduce abuse/accidental huge payloads
+    if req.exercises.is_empty() {
+        return Err(crate::error::AppError::Validation(
+            "At least one exercise is required".to_string(),
+        ));
+    }
+    if req.exercises.len() > 50 {
+        return Err(crate::error::AppError::Validation(
+            "Too many exercises (max 50)".to_string(),
+        ));
+    }
+    if let Some(note) = &req.note {
+        if note.len() > 5000 {
+            return Err(crate::error::AppError::Validation(
+                "note is too long (max 5000 chars)".to_string(),
+            ));
+        }
+    }
+
+    for (idx, ex) in req.exercises.iter().enumerate() {
+        if ex.sets.is_empty() {
+            return Err(crate::error::AppError::Validation(format!(
+                "Exercise {} must have at least one set",
+                idx + 1
+            )));
+        }
+        if ex.sets.len() > 50 {
+            return Err(crate::error::AppError::Validation(format!(
+                "Exercise {} has too many sets (max 50)",
+                idx + 1
+            )));
+        }
+        // If exercise_id is provided, it must be a UUID
+        if let Some(ex_id) = ex.exercise_id.as_deref().filter(|s| !s.is_empty()) {
+            let _ = validate_uuid(ex_id)?;
+        }
+    }
+
     let workout_id = Uuid::new_v4().to_string();
 
     // Insert workout
     let workout_data = serde_json::json!({
         "id": workout_id,
         "user_id": user.user_id,
-        "date": req.date,
+        "date": date_str,
         "start_time": req.start_time,
         "end_time": req.end_time,
         "perceived_fatigue": req.perceived_fatigue,

@@ -1,13 +1,17 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import '../auth/jwt_utils.dart';
-import '../auth/auth_storage_keys.dart';
+import '../auth/secure_token_storage.dart';
 
 class ApiClient {
   static const String _baseUrlKey = 'api_base_url';
-  static const String _tokenKey = AuthStorageKeys.accessToken;
-  static const String _refreshTokenKey = AuthStorageKeys.refreshToken;
+
+  // Production API URL - HTTPS required
+  static const String _prodBaseUrl = 'https://api.gachitore.com/v1';
+  // Development API URL
+  static const String _devBaseUrl = 'http://localhost:8080/v1';
 
   late final Dio _dio;
   SharedPreferences? _prefs;
@@ -23,10 +27,11 @@ class ApiClient {
   factory ApiClient() => _instance;
 
   ApiClient._internal() {
+    // Use HTTPS in release mode, HTTP only for development
+    final defaultBaseUrl = kReleaseMode ? _prodBaseUrl : _devBaseUrl;
+
     _dio = Dio(BaseOptions(
-      // Default to localhost for development (Rust API on port 8080)
-      // initialize() will override this if a custom URL is saved.
-      baseUrl: 'http://localhost:8080/v1',
+      baseUrl: defaultBaseUrl,
       connectTimeout: const Duration(seconds: 30),
       receiveTimeout: const Duration(seconds: 30),
       headers: {
@@ -37,9 +42,8 @@ class ApiClient {
 
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {
-        // Add auth token if available
-        final prefs = await _getPrefs();
-        final token = prefs.getString(_tokenKey);
+        // Add auth token if available (from secure storage)
+        final token = await SecureTokenStorage.getAccessToken();
         if (token != null && token.isNotEmpty) {
           options.headers['Authorization'] = 'Bearer $token';
         }
@@ -61,8 +65,7 @@ class ApiClient {
           if (refreshed) {
             // Retry the original request with new token
             try {
-              final prefs = await _getPrefs();
-              final newToken = prefs.getString(_tokenKey);
+              final newToken = await SecureTokenStorage.getAccessToken();
               requestOptions.headers['Authorization'] = 'Bearer $newToken';
 
               final response = await _dio.fetch(requestOptions);
@@ -95,8 +98,7 @@ class ApiClient {
   Future<bool> _performRefreshToken() async {
     try {
       await initialize();
-      final prefs = await _getPrefs();
-      final refreshToken = prefs.getString(_refreshTokenKey);
+      final refreshToken = await SecureTokenStorage.getRefreshToken();
 
       if (refreshToken == null || refreshToken.isEmpty) {
         return false;
@@ -121,11 +123,11 @@ class ApiClient {
         final newRefreshToken = response.data['refresh_token'];
 
         if (newAccessToken != null) {
-          await prefs.setString(_tokenKey, newAccessToken);
+          await SecureTokenStorage.setAccessToken(newAccessToken);
 
           // Also update refresh token if provided
           if (newRefreshToken != null) {
-            await prefs.setString(_refreshTokenKey, newRefreshToken);
+            await SecureTokenStorage.setRefreshToken(newRefreshToken);
           }
 
           return true;
@@ -133,7 +135,12 @@ class ApiClient {
       }
 
       return false;
-    } catch (_) {
+    } catch (e) {
+      // Keep this best-effort (no throw), but log for diagnostics.
+      try {
+        // ignore: avoid_print
+        print('[ApiClient] refresh token failed: $e');
+      } catch (_) {}
       return false;
     }
   }
@@ -146,9 +153,8 @@ class ApiClient {
     Duration leeway = const Duration(minutes: 2),
   }) async {
     await initialize();
-    final prefs = await _getPrefs();
-    final accessToken = prefs.getString(_tokenKey);
-    final refreshToken = prefs.getString(_refreshTokenKey);
+    final accessToken = await SecureTokenStorage.getAccessToken();
+    final refreshToken = await SecureTokenStorage.getRefreshToken();
 
     final isAccessValid = accessToken != null &&
         accessToken.isNotEmpty &&
@@ -164,8 +170,13 @@ class ApiClient {
       final ok = await _tryRefreshToken();
       if (ok) {
         startAutoRefresh(leeway: leeway);
+        return true;
       }
-      return ok;
+
+      // Refresh failed: clear tokens so the app can fall back to login cleanly.
+      await _clearAllTokens();
+      onAuthenticationFailed?.call();
+      return false;
     }
 
     stopAutoRefresh();
@@ -190,8 +201,7 @@ class ApiClient {
   Future<void> _scheduleNextAutoRefresh({
     required Duration leeway,
   }) async {
-    final prefs = await _getPrefs();
-    final token = prefs.getString(_tokenKey);
+    final token = await SecureTokenStorage.getAccessToken();
     if (token == null || token.isEmpty) return;
 
     final exp = JwtUtils.tryGetExpiry(token);
@@ -220,9 +230,7 @@ class ApiClient {
 
   /// Clear all auth tokens
   Future<void> _clearAllTokens() async {
-    final prefs = await _getPrefs();
-    await prefs.remove(_tokenKey);
-    await prefs.remove(_refreshTokenKey);
+    await SecureTokenStorage.clearAll();
     stopAutoRefresh();
   }
 
@@ -232,6 +240,14 @@ class ApiClient {
   }
 
   Future<void> setBaseUrl(String url) async {
+    // Security: In release mode, only allow HTTPS URLs
+    if (kReleaseMode && !url.startsWith('https://')) {
+      throw ApiException(
+        message: 'HTTPS is required in production',
+        statusCode: 400,
+      );
+    }
+
     final prefs = await _getPrefs();
     await prefs.setString(_baseUrlKey, url);
     _dio.options.baseUrl = url;
@@ -254,18 +270,15 @@ class ApiClient {
   }
 
   Future<void> setToken(String token) async {
-    final prefs = await _getPrefs();
-    await prefs.setString(_tokenKey, token);
+    await SecureTokenStorage.setAccessToken(token);
   }
 
   Future<void> clearToken() async {
-    final prefs = await _getPrefs();
-    await prefs.remove(_tokenKey);
+    await SecureTokenStorage.deleteAccessToken();
   }
 
   Future<String?> getToken() async {
-    final prefs = await _getPrefs();
-    return prefs.getString(_tokenKey);
+    return await SecureTokenStorage.getAccessToken();
   }
 
   // GET request

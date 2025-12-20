@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     api::middleware::AuthUser,
+    api::validation::{validate_date_ymd, validate_uuid},
     error::{AppError, AppResult},
     AppState,
 };
@@ -16,15 +17,18 @@ use crate::{
 // Validation Helpers
 // =============================================================================
 
-/// Validate date format (YYYY-MM-DD) and return parsed date
-fn validate_date(date_str: &str) -> Result<NaiveDate, AppError> {
-    NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-        .map_err(|_| AppError::Validation("Invalid date format. Expected YYYY-MM-DD".to_string()))
-}
-
 /// Validate meal_type is one of allowed values
 fn validate_meal_type(meal_type: &str) -> Result<(), AppError> {
-    const ALLOWED_TYPES: &[&str] = &["breakfast", "lunch", "dinner", "snack", "other"];
+    // Keep in sync with DB CHECK constraint (sql.md / Supabase schema).
+    const ALLOWED_TYPES: &[&str] = &[
+        "breakfast",
+        "lunch",
+        "dinner",
+        "snack",
+        "pre_workout",
+        "post_workout",
+        "other",
+    ];
     if ALLOWED_TYPES.contains(&meal_type.to_lowercase().as_str()) {
         Ok(())
     } else {
@@ -35,12 +39,6 @@ fn validate_meal_type(meal_type: &str) -> Result<(), AppError> {
     }
 }
 
-/// Validate UUID format
-fn validate_uuid(id: &str) -> Result<Uuid, AppError> {
-    Uuid::parse_str(id)
-        .map_err(|_| AppError::Validation("Invalid ID format".to_string()))
-}
-
 // =============================================================================
 // Request/Response DTOs
 // =============================================================================
@@ -48,6 +46,11 @@ fn validate_uuid(id: &str) -> Result<Uuid, AppError> {
 #[derive(Debug, Deserialize)]
 pub struct DateQuery {
     pub date: String, // YYYY-MM-DD
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecentMealsQuery {
+    pub limit: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,11 +132,64 @@ pub async fn get_meals(
     Query(params): Query<DateQuery>,
 ) -> AppResult<Json<Vec<MealEntry>>> {
     // Validate date format to prevent injection
-    let validated_date = validate_date(&params.date)?;
+    let validated_date = validate_date_ymd(&params.date)?;
 
     let query = format!(
         "user_id=eq.{}&date=eq.{}&select=id,date,time,meal_type,note,meal_items(id,name,quantity,unit,calories,protein_g,fat_g,carbs_g)&order=time",
         user.user_id, validated_date.format("%Y-%m-%d")
+    );
+
+    let meals: Vec<serde_json::Value> = state
+        .supabase
+        .select("meals", &query, &user.token)
+        .await?;
+
+    let result: Vec<MealEntry> = meals
+        .into_iter()
+        .map(|m| {
+            let items = m["meal_items"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .map(|i| MealItem {
+                            id: i["id"].as_str().unwrap_or_default().to_string(),
+                            name: i["name"].as_str().unwrap_or_default().to_string(),
+                            quantity: i["quantity"].as_f64(),
+                            unit: i["unit"].as_str().map(String::from),
+                            calories: i["calories"].as_i64().unwrap_or(0) as i32,
+                            protein_g: i["protein_g"].as_f64().unwrap_or(0.0),
+                            fat_g: i["fat_g"].as_f64().unwrap_or(0.0),
+                            carbs_g: i["carbs_g"].as_f64().unwrap_or(0.0),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            MealEntry {
+                id: m["id"].as_str().unwrap_or_default().to_string(),
+                date: m["date"].as_str().unwrap_or_default().to_string(),
+                time: m["time"].as_str().map(String::from),
+                meal_type: m["meal_type"].as_str().unwrap_or_default().to_string(),
+                note: m["note"].as_str().map(String::from),
+                items,
+            }
+        })
+        .collect();
+
+    Ok(Json(result))
+}
+
+/// GET /meals/recent?limit=N
+pub async fn get_recent_meals(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
+    Query(params): Query<RecentMealsQuery>,
+) -> AppResult<Json<Vec<MealEntry>>> {
+    let limit = params.limit.unwrap_or(30).clamp(1, 200);
+
+    let query = format!(
+        "user_id=eq.{}&select=id,date,time,meal_type,note,meal_items(id,name,quantity,unit,calories,protein_g,fat_g,carbs_g)&order=date.desc,time.desc&limit={}",
+        user.user_id, limit
     );
 
     let meals: Vec<serde_json::Value> = state
@@ -183,7 +239,7 @@ pub async fn get_nutrition(
     Query(params): Query<DateQuery>,
 ) -> AppResult<Json<NutritionSummary>> {
     // Validate date format to prevent injection
-    let validated_date = validate_date(&params.date)?;
+    let validated_date = validate_date_ymd(&params.date)?;
 
     // Get daily nutrition
     let nutrition_query = format!(
@@ -249,7 +305,7 @@ pub async fn log_meal(
     Json(req): Json<LogMealRequest>,
 ) -> AppResult<Json<LogMealResponse>> {
     // Validate date format
-    let validated_date = validate_date(&req.date)?;
+    let validated_date = validate_date_ymd(&req.date)?;
 
     // Validate meal_type
     validate_meal_type(&req.meal_type)?;
@@ -260,11 +316,17 @@ pub async fn log_meal(
     }
 
     for (i, item) in req.items.iter().enumerate() {
+        // Check for empty or whitespace-only name
         if item.name.trim().is_empty() {
             return Err(AppError::Validation(format!("Item {} name cannot be empty", i + 1)));
         }
-        if item.name.len() > 200 {
+        // Check character length
+        if item.name.chars().count() > 200 {
             return Err(AppError::Validation(format!("Item {} name is too long (max 200 chars)", i + 1)));
+        }
+        // Security: Check byte length to prevent UTF-8 exploits (4 bytes per char max)
+        if item.name.as_bytes().len() > 800 {
+            return Err(AppError::Validation(format!("Item {} name exceeds byte limit", i + 1)));
         }
         if let Some(qty) = item.quantity {
             if qty < 0.0 {
@@ -346,10 +408,20 @@ pub async fn log_meal(
     }
 
     // Batch insert meal items (1 query instead of N)
-    state
+    if let Err(e) = state
         .supabase
         .insert_batch("meal_items", &item_data_list, &user.token)
-        .await?;
+        .await
+    {
+        // Best-effort rollback: avoid leaving an empty meal row if item insert fails.
+        // (We don't have a cross-table transaction via PostgREST here.)
+        let rollback_query = format!("id=eq.{}&user_id=eq.{}", meal_id, user.user_id);
+        let _ = state
+            .supabase
+            .delete("meals", &rollback_query, &user.token)
+            .await;
+        return Err(e);
+    }
 
     // Update or insert nutrition_daily
     let nutrition_query = format!(

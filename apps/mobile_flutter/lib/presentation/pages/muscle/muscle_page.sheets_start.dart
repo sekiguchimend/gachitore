@@ -65,6 +65,13 @@ extension _MusclePageSheetsStart on _MusclePageState {
                   children: [
                     _buildWorkoutTemplate(
                       sheetContext,
+                      '履歴からコピー',
+                      '前回のメニューを呼び出す',
+                      Icons.copy_outlined,
+                      isCopyFromHistory: true,
+                    ),
+                    _buildWorkoutTemplate(
+                      sheetContext,
                       '空のワークアウト',
                       '種目を自由に追加',
                       Icons.add_circle_outline,
@@ -122,13 +129,16 @@ extension _MusclePageSheetsStart on _MusclePageState {
     String description,
     IconData icon, {
     bool isEmpty = false,
+    bool isCopyFromHistory = false,
   }) {
     return GestureDetector(
       onTap: () {
         Navigator.of(sheetContext).pop();
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            if (isEmpty) {
+            if (isCopyFromHistory) {
+              _showCopyWorkoutFromHistorySheet();
+            } else if (isEmpty) {
               _showExerciseSelectionSheet();
             } else {
               // テンプレートに対応する筋肉グループでフィルタリング

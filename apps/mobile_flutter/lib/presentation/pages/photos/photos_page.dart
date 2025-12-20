@@ -14,6 +14,8 @@ class PhotosPage extends ConsumerStatefulWidget {
 }
 
 class _PhotosPageState extends ConsumerState<PhotosPage> {
+  static const int _maxPhotosPerUser = 100;
+
   bool _loading = true;
   bool _uploading = false;
   String? _error;
@@ -32,7 +34,7 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
     });
     try {
       final photoService = ref.read(photoServiceProvider);
-      final res = await photoService.listPhotos(limit: 60);
+      final res = await photoService.listPhotos(limit: _maxPhotosPerUser);
       if (!mounted) return;
       setState(() {
         _photos = res.photos;
@@ -49,6 +51,12 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
 
   Future<void> _takePhoto() async {
     if (_uploading) return;
+    if (_photos.length >= _maxPhotosPerUser) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('写真は1人100枚までです。不要な写真を削除してください。')),
+      );
+      return;
+    }
     // Open camera page and take a picture
     final XFile? file = await Navigator.of(context).push(
       MaterialPageRoute(
@@ -69,7 +77,7 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('アップロードに失敗しました: $e')),
+        SnackBar(content: Text(e.toString())),
       );
     } finally {
       if (mounted) setState(() => _uploading = false);
@@ -78,6 +86,7 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
 
   @override
   Widget build(BuildContext context) {
+    final reachedLimit = _photos.length >= _maxPhotosPerUser;
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -90,7 +99,7 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _takePhoto,
+        onPressed: (_uploading || reachedLimit) ? null : _takePhoto,
         backgroundColor: AppColors.greenPrimary,
         child: _uploading
             ? const SizedBox(
@@ -231,7 +240,7 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
     showDialog(
       context: context,
       barrierColor: Colors.black.withOpacity(0.75),
-      builder: (context) {
+      builder: (dialogContext) {
         return Dialog(
           backgroundColor: Colors.transparent,
           insetPadding: const EdgeInsets.all(16),
@@ -276,8 +285,16 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
                 top: 8,
                 right: 8,
                 child: IconButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => Navigator.pop(dialogContext),
                   icon: const Icon(Icons.close, color: Colors.white),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                left: 8,
+                child: IconButton(
+                  onPressed: () => _confirmDelete(dialogContext, photo),
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
                 ),
               ),
             ],
@@ -285,6 +302,65 @@ class _PhotosPageState extends ConsumerState<PhotosPage> {
         );
       },
     );
+  }
+
+  void _confirmDelete(BuildContext dialogContext, PhotoItem photo) {
+    showDialog(
+      context: dialogContext,
+      builder: (confirmContext) => AlertDialog(
+        backgroundColor: AppColors.bgCard,
+        title: const Text(
+          '写真を削除',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: const Text(
+          'この写真を削除しますか？\nこの操作は取り消せません。',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(confirmContext),
+            child: const Text(
+              'キャンセル',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(confirmContext);
+              Navigator.pop(dialogContext);
+              await _deletePhoto(photo);
+            },
+            child: const Text(
+              '削除',
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deletePhoto(PhotoItem photo) async {
+    try {
+      final photoService = ref.read(photoServiceProvider);
+      await photoService.deletePhoto(photo.id);
+      if (!mounted) return;
+      setState(() {
+        _photos.removeWhere((p) => p.id == photo.id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('写真を削除しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('削除に失敗しました: $e')),
+      );
+    }
   }
 }
 

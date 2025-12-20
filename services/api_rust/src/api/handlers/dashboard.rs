@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::middleware::AuthUser,
+    api::validation::validate_date_ymd,
     error::AppResult,
     AppState,
 };
@@ -78,9 +79,11 @@ pub async fn get_dashboard(
     Extension(user): Extension<AuthUser>,
     Query(params): Query<DateQuery>,
 ) -> AppResult<Json<DashboardResponse>> {
-    let today = params.date.unwrap_or_else(|| {
+    let today = if let Some(date) = params.date {
+        validate_date_ymd(&date)?.format("%Y-%m-%d").to_string()
+    } else {
         chrono::Utc::now().format("%Y-%m-%d").to_string()
-    });
+    };
 
     // Get body metrics for today
     let metrics_query = format!(
@@ -170,10 +173,13 @@ pub async fn log_metrics(
     Extension(user): Extension<AuthUser>,
     Json(req): Json<LogMetricsRequest>,
 ) -> AppResult<Json<MessageResponse>> {
+    // Validate date format to prevent PostgREST query injection
+    let date_str = validate_date_ymd(&req.date)?.format("%Y-%m-%d").to_string();
+
     // Check if metrics already exist for this date
     let check_query = format!(
         "user_id=eq.{}&date=eq.{}",
-        user.user_id, req.date
+        user.user_id, date_str
     );
     let existing: Vec<serde_json::Value> = state
         .supabase
@@ -184,7 +190,7 @@ pub async fn log_metrics(
         // Insert new record
         let data = serde_json::json!({
             "user_id": user.user_id,
-            "date": req.date,
+            "date": date_str,
             "weight_kg": req.weight_kg,
             "bodyfat_pct": req.bodyfat_pct,
             "sleep_hours": req.sleep_hours,

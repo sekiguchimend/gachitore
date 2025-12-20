@@ -1,6 +1,13 @@
 part of 'food_page.dart';
 
 extension _FoodPageMeals on _FoodPageState {
+  String _selectedDateLabel() {
+    final now = DateTime.now();
+    if (_isSameDay(_selectedDate, now)) return '今日';
+    final weekday = _getDayName(_selectedDate.weekday);
+    return '${_selectedDate.month}/${_selectedDate.day}（$weekday）';
+  }
+
   Widget _buildMealsList() {
     if (_meals.isEmpty) {
       return Padding(
@@ -14,9 +21,9 @@ extension _FoodPageMeals on _FoodPageState {
                 color: AppColors.textTertiary,
               ),
               const SizedBox(height: 16),
-              const Text(
-                '今日の食事を記録しましょう',
-                style: TextStyle(
+              Text(
+                '${_selectedDateLabel()}の食事を記録しましょう',
+                style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: AppColors.textSecondary,
@@ -33,9 +40,9 @@ extension _FoodPageMeals on _FoodPageState {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '今日の食事',
-            style: TextStyle(
+          Text(
+            '${_selectedDateLabel()}の食事',
+            style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
               color: AppColors.textPrimary,

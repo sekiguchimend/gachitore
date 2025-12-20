@@ -10,6 +10,7 @@ part 'muscle_page.exercises.dart';
 part 'muscle_page.history.dart';
 part 'muscle_page.sheets_start.dart';
 part 'muscle_page.sheets_detail.dart';
+part 'muscle_page.copy_workout.dart';
 
 class MusclePage extends ConsumerStatefulWidget {
   const MusclePage({super.key});
@@ -135,9 +136,6 @@ class _MusclePageState extends ConsumerState<MusclePage>
             // Header
             _buildHeader(),
 
-            // Tab Bar
-            _buildTabBar(),
-
             // Content
             Expanded(
               child: TabBarView(
@@ -154,9 +152,9 @@ class _MusclePageState extends ConsumerState<MusclePage>
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showStartWorkoutSheet(),
         backgroundColor: AppColors.greenPrimary,
-        icon: const Icon(Icons.play_arrow, color: AppColors.textPrimary),
+        icon: const Icon(Icons.add, color: AppColors.textPrimary),
         label: const Text(
-          'ワークアウト開始',
+          '今日やった種目',
           style: TextStyle(
             fontWeight: FontWeight.w600,
             color: AppColors.textPrimary,

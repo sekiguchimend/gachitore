@@ -7,6 +7,8 @@ import '../../data/services/meal_service.dart';
 import '../../data/services/ai_service.dart';
 import '../../data/services/photo_service.dart';
 import '../../data/services/push_notification_service.dart';
+import '../../data/services/app_settings_service.dart';
+import '../../data/services/support_service.dart';
 
 // API client provider
 final apiClientProvider = Provider<ApiClient>((ref) {
@@ -58,6 +60,18 @@ final photoServiceProvider = Provider<PhotoService>((ref) {
 // Push notification service provider (FCM token sync)
 final pushNotificationServiceProvider = Provider<PushNotificationService>((ref) {
   return PushNotificationService(
+    apiClient: ref.watch(apiClientProvider),
+  );
+});
+
+// App settings (local persistence)
+final appSettingsServiceProvider = Provider<AppSettingsService>((ref) {
+  return AppSettingsService();
+});
+
+// Support service provider
+final supportServiceProvider = Provider<SupportService>((ref) {
+  return SupportService(
     apiClient: ref.watch(apiClientProvider),
   );
 });

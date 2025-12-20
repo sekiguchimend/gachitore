@@ -5,6 +5,7 @@ mod dashboard;
 mod meals;
 mod photos;
 mod push_tokens;
+mod support;
 mod users;
 mod workouts;
 
@@ -15,5 +16,6 @@ pub use dashboard::*;
 pub use meals::*;
 pub use photos::*;
 pub use push_tokens::*;
+pub use support::*;
 pub use users::*;
 pub use workouts::*;

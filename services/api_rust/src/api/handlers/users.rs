@@ -1,4 +1,7 @@
-use axum::{extract::State, Extension, Json};
+use axum::{
+    extract::{rejection::JsonRejection, State},
+    Extension, Json,
+};
 use chrono::Datelike;
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +17,8 @@ use crate::{
 
 /// Validate goal is one of allowed values
 fn validate_goal(goal: &str) -> Result<(), AppError> {
-    const ALLOWED_GOALS: &[&str] = &["muscle_gain", "fat_loss", "health", "endurance", "strength"];
+    // Must match DB constraint in public.user_profiles.goal
+    const ALLOWED_GOALS: &[&str] = &["hypertrophy", "cut", "health", "strength"];
     if ALLOWED_GOALS.contains(&goal.to_lowercase().as_str()) {
         Ok(())
     } else {
@@ -83,6 +87,10 @@ pub struct UpdateProfileRequest {
     pub weight_kg: Option<f64>,
     pub environment: Option<serde_json::Value>,
     pub constraints: Option<serde_json::Value>,
+    pub target_calories: Option<i32>,
+    pub target_protein_g: Option<f64>,
+    pub target_fat_g: Option<f64>,
+    pub target_carbs_g: Option<f64>,
 }
 
 // =============================================================================
@@ -105,18 +113,41 @@ pub struct UserProfile {
     pub weight_kg: Option<f64>,
     pub height_cm: Option<i32>,
     pub birth_year: Option<i32>,
+    pub target_calories: Option<i32>,
+    pub target_protein_g: Option<f64>,
+    pub target_fat_g: Option<f64>,
+    pub target_carbs_g: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CompleteOnboardingRequest {
-    pub goal: String,
-    pub level: String,
-    pub weight: f64,
-    pub height: f64,
-    pub age: i32,
-    pub sex: String,
-    pub environment: Option<String>,
-    pub constraints: Option<Vec<String>>,
+#[serde(untagged)]
+pub enum CompleteOnboardingRequest {
+    /// Legacy client payload
+    V1 {
+        goal: String,
+        level: String,
+        weight: f64,
+        height: f64,
+        age: i32,
+        sex: String,
+        environment: Option<String>,
+        constraints: Option<Vec<String>>,
+    },
+    /// Newer client payload aligned to DB column names (Flutter sends this)
+    V2 {
+        goal: String,
+        training_level: String,
+        /// Optional: some clients may forget to send weight_kg (we’ll accept but skip body_metrics)
+        #[serde(default)]
+        weight_kg: Option<f64>,
+        height_cm: i32,
+        birth_year: i32,
+        sex: String,
+        environment: Option<serde_json::Value>,
+        constraints: Option<serde_json::Value>,
+        #[serde(default)]
+        meals_per_day: Option<i32>,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -172,6 +203,10 @@ pub async fn get_profile(
         weight_kg: metric.as_ref().and_then(|m| m["weight_kg"].as_f64()),
         height_cm: profile.as_ref().and_then(|p| p["height_cm"].as_i64().map(|v| v as i32)),
         birth_year: profile.as_ref().and_then(|p| p["birth_year"].as_i64().map(|v| v as i32)),
+        target_calories: profile.as_ref().and_then(|p| p["target_calories"].as_i64().map(|v| v as i32)),
+        target_protein_g: profile.as_ref().and_then(|p| p["target_protein_g"].as_f64()),
+        target_fat_g: profile.as_ref().and_then(|p| p["target_fat_g"].as_f64()),
+        target_carbs_g: profile.as_ref().and_then(|p| p["target_carbs_g"].as_f64()),
     }))
 }
 
@@ -202,53 +237,124 @@ pub async fn get_onboarding_status(
 pub async fn complete_onboarding(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
-    Json(req): Json<CompleteOnboardingRequest>,
+    payload: Result<Json<CompleteOnboardingRequest>, JsonRejection>,
 ) -> AppResult<Json<MessageResponse>> {
-    // Validate all inputs
-    validate_goal(&req.goal)?;
-    validate_level(&req.level)?;
-    validate_sex(&req.sex)?;
-    validate_range(req.weight, 20.0, 300.0, "weight")?;
-    validate_range(req.height, 50.0, 250.0, "height")?;
-    validate_range(req.age, 1, 120, "age")?;
+    let Json(req) = payload.map_err(|e| {
+        AppError::BadRequest(format!(
+            "onboarding/complete のリクエスト形式が不正です: {}",
+            e
+        ))
+    })?;
 
+    // Normalize request into internal fields
     let now = chrono::Utc::now();
     let today = now.format("%Y-%m-%d").to_string();
-
-    // Calculate birth year from age
     let current_year = now.year();
-    let birth_year = current_year - req.age;
 
-    // Build environment JSON based on the environment string
-    let env = req.environment.as_deref().unwrap_or("gym");
-    let environment_json = serde_json::json!({
-        "gym": env == "gym" || env == "both",
-        "home": env == "home" || env == "both",
-        "equipment": []  // Can be populated later
-    });
+    let (goal, training_level, sex, height_cm, birth_year, weight_kg, environment_json, constraints_json, meals_per_day) =
+        match req {
+            CompleteOnboardingRequest::V1 {
+                goal,
+                level,
+                weight,
+                height,
+                age,
+                sex,
+                environment,
+                constraints,
+            } => {
+                // Validate V1 fields
+                validate_goal(&goal)?;
+                validate_level(&level)?;
+                validate_sex(&sex)?;
+                validate_range(weight, 20.0, 300.0, "weight")?;
+                validate_range(height, 50.0, 250.0, "height")?;
+                validate_range(age, 1, 120, "age")?;
 
-    // Build constraints JSON array
-    let constraints_json: serde_json::Value = req.constraints
-        .as_ref()
-        .map(|c| {
-            c.iter()
-                .map(|part| serde_json::json!({"part": part, "severity": "mild"}))
-                .collect::<Vec<_>>()
-        })
-        .map(|arr| serde_json::Value::Array(arr))
-        .unwrap_or(serde_json::json!([]));
+                let birth_year = current_year - age;
+
+                // Build environment JSON based on the environment string
+                let env = environment.as_deref().unwrap_or("gym");
+                let environment_json = serde_json::json!({
+                    "gym": env == "gym" || env == "both",
+                    "home": env == "home" || env == "both",
+                    "equipment": []  // Can be populated later
+                });
+
+                // Build constraints JSON array
+                let constraints_json: serde_json::Value = constraints
+                    .as_ref()
+                    .map(|c| {
+                        c.iter()
+                            .map(|part| serde_json::json!({"part": part, "severity": "mild"}))
+                            .collect::<Vec<_>>()
+                    })
+                    .map(serde_json::Value::Array)
+                    .unwrap_or_else(|| serde_json::json!([]));
+
+                (
+                    goal,
+                    level,
+                    sex,
+                    height as i32,
+                    birth_year,
+                    Some(weight),
+                    environment_json,
+                    constraints_json,
+                    3,
+                )
+            }
+            CompleteOnboardingRequest::V2 {
+                goal,
+                training_level,
+                weight_kg,
+                height_cm,
+                birth_year,
+                sex,
+                environment,
+                constraints,
+                meals_per_day,
+            } => {
+                // Validate V2 fields
+                validate_goal(&goal)?;
+                validate_level(&training_level)?;
+                validate_sex(&sex)?;
+                validate_range(height_cm, 50, 250, "height_cm")?;
+                validate_range(birth_year, 1900, current_year, "birth_year")?;
+                if let Some(w) = weight_kg {
+                    validate_range(w, 20.0, 300.0, "weight_kg")?;
+                }
+
+                let environment_json = environment.unwrap_or_else(|| serde_json::json!({}));
+                let constraints_json = constraints.unwrap_or_else(|| serde_json::json!([]));
+                let meals_per_day = meals_per_day.unwrap_or(3);
+
+                (
+                    goal,
+                    training_level,
+                    sex,
+                    height_cm,
+                    birth_year,
+                    weight_kg,
+                    environment_json,
+                    constraints_json,
+                    meals_per_day,
+                )
+            }
+        };
 
     // Upsert user profile (insert or update on conflict)
     let profile_data = serde_json::json!({
         "user_id": user.user_id,
         "display_name": user.email.split('@').next().unwrap_or("User"),
-        "goal": req.goal,
-        "training_level": req.level,
-        "sex": req.sex,
-        "height_cm": req.height as i32,
+        "goal": goal,
+        "training_level": training_level,
+        "sex": sex,
+        "height_cm": height_cm,
         "birth_year": birth_year,
         "environment": environment_json,
         "constraints": constraints_json,
+        "meals_per_day": meals_per_day,
         "onboarding_completed": true,
         "updated_at": now.to_rfc3339()
     });
@@ -259,16 +365,18 @@ pub async fn complete_onboarding(
         .await?;
 
     // Upsert body metrics (weight only - height is in user_profiles)
-    let metrics_data = serde_json::json!({
-        "user_id": user.user_id,
-        "date": today,
-        "weight_kg": req.weight
-    });
+    if let Some(weight_kg) = weight_kg {
+        let metrics_data = serde_json::json!({
+            "user_id": user.user_id,
+            "date": today,
+            "weight_kg": weight_kg
+        });
 
-    state
-        .supabase
-        .upsert("body_metrics", &metrics_data, "user_id,date", &user.token)
-        .await?;
+        state
+            .supabase
+            .upsert("body_metrics", &metrics_data, "user_id,date", &user.token)
+            .await?;
+    }
 
     Ok(Json(MessageResponse {
         message: "Onboarding completed successfully".to_string(),
@@ -305,6 +413,20 @@ pub async fn update_profile(
         if name.len() > 100 {
             return Err(AppError::Validation("display_name is too long (max 100 chars)".to_string()));
         }
+    }
+
+    // Validate PFC targets (optional)
+    if let Some(cal) = req.target_calories {
+        validate_range(cal, 500, 10000, "target_calories")?;
+    }
+    if let Some(p) = req.target_protein_g {
+        validate_range(p, 0.0, 1000.0, "target_protein_g")?;
+    }
+    if let Some(f) = req.target_fat_g {
+        validate_range(f, 0.0, 500.0, "target_fat_g")?;
+    }
+    if let Some(c) = req.target_carbs_g {
+        validate_range(c, 0.0, 1000.0, "target_carbs_g")?;
     }
 
     let now = chrono::Utc::now();
@@ -350,6 +472,18 @@ pub async fn update_profile(
         if let Some(constraints) = &req.constraints {
             profile_updates.insert("constraints".to_string(), constraints.clone());
         }
+        if let Some(target_calories) = req.target_calories {
+            profile_updates.insert("target_calories".to_string(), serde_json::json!(target_calories));
+        }
+        if let Some(target_protein_g) = req.target_protein_g {
+            profile_updates.insert("target_protein_g".to_string(), serde_json::json!(target_protein_g));
+        }
+        if let Some(target_fat_g) = req.target_fat_g {
+            profile_updates.insert("target_fat_g".to_string(), serde_json::json!(target_fat_g));
+        }
+        if let Some(target_carbs_g) = req.target_carbs_g {
+            profile_updates.insert("target_carbs_g".to_string(), serde_json::json!(target_carbs_g));
+        }
 
         let profile_data = serde_json::Value::Object(profile_updates);
         state
@@ -377,6 +511,10 @@ pub async fn update_profile(
             "constraints": req.constraints.unwrap_or_else(|| serde_json::json!([])),
             "meals_per_day": 3,
             "onboarding_completed": false,
+            "target_calories": req.target_calories.unwrap_or(2400),
+            "target_protein_g": req.target_protein_g.unwrap_or(150.0),
+            "target_fat_g": req.target_fat_g.unwrap_or(80.0),
+            "target_carbs_g": req.target_carbs_g.unwrap_or(250.0),
             "updated_at": now.to_rfc3339(),
         });
 

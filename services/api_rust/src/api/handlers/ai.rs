@@ -1,12 +1,13 @@
 use axum::{extract::State, Json};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{
     api::middleware::AuthUser,
     error::{AppError, AppResult},
     infrastructure::supabase::AiMessage,
-    state::{check_safety_flags, get_system_instruction, StateGenerator},
+    state::{check_safety_flags, get_system_instruction, sanitize_user_input, StateGenerator},
     AppState,
 };
 
@@ -49,7 +50,8 @@ async fn send_chat_push_best_effort(
 #[derive(Debug, Deserialize)]
 pub struct AskRequest {
     pub message: String,
-    pub session_id: Option<String>,
+    /// Existing session id (UUID). If invalid, the request is rejected.
+    pub session_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -111,11 +113,27 @@ pub async fn ask_ai(
     user: AuthUser,
     Json(req): Json<AskRequest>,
 ) -> AppResult<Json<AskResponse>> {
-    // Check safety flags
-    let safety_flags = check_safety_flags(&req.message);
+    // Sanitize user input to prevent prompt injection
+    let sanitized_message = sanitize_user_input(&req.message);
+
+    // Check safety flags on sanitized input
+    let safety_flags = check_safety_flags(&sanitized_message);
+
+    // Reject dangerous content
     if safety_flags.iter().any(|f| f == "steroids" || f == "anabolics") {
         return Err(AppError::SafetyGuard(
             "This type of advice cannot be provided.".to_string(),
+        ));
+    }
+
+    // Reject potential prompt injection attempts
+    if safety_flags.iter().any(|f| f == "prompt_injection") {
+        tracing::warn!(
+            user_id = %user.user_id,
+            "Prompt injection attempt detected"
+        );
+        return Err(AppError::SafetyGuard(
+            "Invalid input detected.".to_string(),
         ));
     }
 
@@ -125,7 +143,8 @@ pub async fn ask_ai(
     let user_state = state_gen.generate(&user.user_id.clone(), today).await?;
 
     // Resolve (or create) session before calling Gemini so we can fetch history
-    let session_id = if let Some(sid) = req.session_id.clone() {
+    let session_id = if let Some(sid) = req.session_id {
+        let sid = sid.to_string();
         // Verify session belongs to user (and exists)
         let existing: Option<serde_json::Value> = state
             .supabase
@@ -202,7 +221,7 @@ pub async fn ask_ai(
 {}
 
 上記の状態を踏まえて、適切なアドバイスをJSON形式で返してください。"#,
-        state_json, req.message
+        state_json, sanitized_message
     );
 
     // Get system instruction
@@ -225,18 +244,22 @@ pub async fn ask_ai(
     }
 
     // Debug: Log prompts (debug level - not shown in production with RUST_LOG=info)
-    tracing::debug!("=== SYSTEM INSTRUCTION ===\n{}", system_instruction);
-    tracing::debug!("=== USER STATE ===\n{}", state_json);
-    tracing::debug!("=== PROMPT ===\n{}", prompt);
+    // Avoid logging raw prompts/state (may contain personal data). Log only lengths.
+    tracing::debug!(
+        system_instruction_len = system_instruction.len(),
+        state_json_len = state_json.len(),
+        prompt_len = prompt.len(),
+        "AI prompt built"
+    );
 
     // Call Gemini
     let gemini_response = state.gemini.generate(&prompt, Some(&system_instruction)).await?;
 
-    // Save user message
+    // Save user message (sanitized)
     let user_message = CreateAiMessage {
         session_id: session_id.clone(),
         role: "user".to_string(),
-        content: req.message.clone(),
+        content: sanitized_message.clone(),
     };
     let _: AiMessageResponse = state
         .supabase

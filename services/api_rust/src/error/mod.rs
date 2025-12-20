@@ -6,6 +6,38 @@ use axum::{
 use serde::Serialize;
 use thiserror::Error;
 
+/// Mask sensitive data in error messages for logging
+/// Removes tokens, passwords, and other sensitive information
+fn mask_sensitive_data(msg: &str) -> String {
+    let mut masked = msg.to_string();
+
+    // Mask JWT tokens (eyJ... pattern)
+    let jwt_regex = regex::Regex::new(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+").ok();
+    if let Some(re) = jwt_regex {
+        masked = re.replace_all(&masked, "[MASKED_TOKEN]").to_string();
+    }
+
+    // Mask Bearer tokens
+    let bearer_regex = regex::Regex::new(r"Bearer\s+[A-Za-z0-9_.-]+").ok();
+    if let Some(re) = bearer_regex {
+        masked = re.replace_all(&masked, "Bearer [MASKED]").to_string();
+    }
+
+    // Mask signed URL tokens
+    let token_regex = regex::Regex::new(r"token=[A-Za-z0-9%_.-]+").ok();
+    if let Some(re) = token_regex {
+        masked = re.replace_all(&masked, "token=[MASKED]").to_string();
+    }
+
+    // Mask API keys (common patterns)
+    let apikey_regex = regex::Regex::new(r"(apikey|api_key|key)=[\w-]+").ok();
+    if let Some(re) = apikey_regex {
+        masked = re.replace_all(&masked, "$1=[MASKED]").to_string();
+    }
+
+    masked
+}
+
 /// Application error types
 #[derive(Error, Debug)]
 pub enum AppError {
@@ -20,6 +52,9 @@ pub enum AppError {
 
     #[error("Authentication error: {0}")]
     AuthError(String),
+
+    #[error("Upstream auth service error: {0}")]
+    UpstreamAuth(String),
 
     #[error("Not found: {0}")]
     NotFound(String),
@@ -64,13 +99,22 @@ impl IntoResponse for AppError {
             }
             AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, "forbidden", msg.clone()),
             AppError::AuthError(msg) => (StatusCode::UNAUTHORIZED, "auth_error", msg.clone()),
+            AppError::UpstreamAuth(msg) => {
+                tracing::error!("Upstream auth error: {}", mask_sensitive_data(msg));
+                (
+                    StatusCode::BAD_GATEWAY,
+                    "upstream_auth_error",
+                    "認証サービスでエラーが発生しました。しばらく待ってから再試行してください".to_string(),
+                )
+            }
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg.clone()),
             AppError::Validation(msg) => {
                 (StatusCode::UNPROCESSABLE_ENTITY, "validation_error", msg.clone())
             }
             AppError::SupabaseError(msg) => {
-                tracing::error!("Supabase API error: {}", msg);
+                // Mask sensitive data before logging
+                tracing::error!("Supabase API error: {}", mask_sensitive_data(msg));
                 (
                     StatusCode::BAD_GATEWAY,
                     "supabase_error",
@@ -78,7 +122,7 @@ impl IntoResponse for AppError {
                 )
             }
             AppError::GeminiApi(msg) => {
-                tracing::error!("Gemini API error: {}", msg);
+                tracing::error!("Gemini API error: {}", mask_sensitive_data(msg));
                 (
                     StatusCode::BAD_GATEWAY,
                     "gemini_error",
@@ -86,7 +130,7 @@ impl IntoResponse for AppError {
                 )
             }
             AppError::ExternalApi(e) => {
-                tracing::error!("External API error: {:?}", e);
+                tracing::error!("External API error: {}", mask_sensitive_data(&format!("{:?}", e)));
                 (
                     StatusCode::BAD_GATEWAY,
                     "external_api_error",
@@ -94,7 +138,7 @@ impl IntoResponse for AppError {
                 )
             }
             AppError::Internal(msg) => {
-                tracing::error!("Internal error: {}", msg);
+                tracing::error!("Internal error: {}", mask_sensitive_data(msg));
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",

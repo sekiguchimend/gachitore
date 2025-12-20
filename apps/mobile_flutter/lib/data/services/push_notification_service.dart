@@ -43,6 +43,28 @@ class PushNotificationService {
     }
   }
 
+  Future<bool> requestPermissionAndEnableAutoInit() async {
+    await initializeFirebaseIfNeeded();
+    if (!_firebaseInitialized) return false;
+
+    try {
+      final settings = await FirebaseMessaging.instance.requestPermission();
+      final status = settings.authorizationStatus;
+      final allowed = status == AuthorizationStatus.authorized ||
+          status == AuthorizationStatus.provisional;
+
+      if (!allowed) return false;
+
+      await FirebaseMessaging.instance.setAutoInitEnabled(true);
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[Push] requestPermission failed: $e');
+      }
+      return false;
+    }
+  }
+
   Future<void> syncToken({String? platform}) async {
     await initializeMessaging();
     if (!_firebaseInitialized) return;
@@ -65,9 +87,54 @@ class PushNotificationService {
     }
   }
 
+  Future<void> deleteCurrentTokenFromServer() async {
+    await initializeFirebaseIfNeeded();
+    if (!_firebaseInitialized) return;
+
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token == null || token.isEmpty) return;
+
+      await _apiClient.delete(
+        '/users/push-token',
+        data: {'token': token},
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[Push] deleteCurrentTokenFromServer failed: $e');
+      }
+    }
+  }
+
+  Future<void> disablePush() async {
+    // サーバー側の送信対象から外す（=実際に届かない）
+    await deleteCurrentTokenFromServer();
+
+    // 端末側も可能な範囲で無効化（best-effort）
+    await initializeFirebaseIfNeeded();
+    if (!_firebaseInitialized) return;
+
+    try {
+      await FirebaseMessaging.instance.setAutoInitEnabled(false);
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[Push] disablePush failed: $e');
+      }
+    }
+  }
+
   Future<void> initializeAndSync({String? platform}) async {
     // 画面遷移を止めない
     unawaited(syncToken(platform: platform));
+  }
+
+  Future<bool> enablePushAndSync({String? platform}) async {
+    final ok = await requestPermissionAndEnableAutoInit();
+    if (!ok) return false;
+
+    await syncToken(platform: platform);
+    return true;
   }
 }
 

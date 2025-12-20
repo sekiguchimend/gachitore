@@ -244,13 +244,22 @@ extension _FoodPageSections on _FoodPageState {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'PFCバランス',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
-            ),
+          Row(
+            children: [
+              const Text(
+                'PFCバランス',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const InfoTooltip(
+                explanation: 'PFCとは、Protein（タンパク質）、Fat（脂質）、Carbohydrate（炭水化物）の頭文字を取った略語です。\n\n三大栄養素のバランスを表し、筋トレや体づくりにおいて重要な指標となります。\n\n・P（タンパク質）：筋肉の材料\n・F（脂質）：ホルモンの材料\n・C（炭水化物）：エネルギー源',
+                size: 14,
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           Row(

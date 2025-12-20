@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
 type PushRequest = {
   title?: string;
@@ -6,33 +7,25 @@ type PushRequest = {
   data?: Record<string, string>;
 };
 
-type JwtPayload = { sub?: string };
-
-function base64UrlDecodeToString(input: string): string {
-  const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
-function getJwtSubFromAuthorizationHeader(authHeader: string | null): string | null {
-  if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
-  const token = authHeader.slice("Bearer ".length);
-  const parts = token.split(".");
-  if (parts.length < 2) return null;
-  try {
-    const payloadJson = base64UrlDecodeToString(parts[1]);
-    const payload = JSON.parse(payloadJson) as JwtPayload;
-    return payload.sub ?? null;
-  } catch {
-    return null;
-  }
-}
-
 function requireEnv(name: string): string {
   const v = Deno.env.get(name);
   if (!v) throw new Error(`Missing env: ${name}`);
   return v;
+}
+
+function createSupabaseFromRequest(req: Request) {
+  const supabaseUrl = requireEnv("SUPABASE_URL").replace(/\/+$/g, "");
+  const anonKey = requireEnv("SUPABASE_ANON_KEY");
+  const authHeader = req.headers.get("Authorization") ?? "";
+
+  return createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false },
+    global: {
+      headers: {
+        Authorization: authHeader,
+      },
+    },
+  });
 }
 
 function getServiceAccount() {
@@ -184,8 +177,18 @@ Deno.serve(async (req) => {
     }
 
     const authHeader = req.headers.get("Authorization");
-    const userId = getJwtSubFromAuthorizationHeader(authHeader);
-    if (!authHeader || !userId) {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Verify token by asking Supabase Auth, then use returned user.id as source of truth.
+    const supabase = createSupabaseFromRequest(req);
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    const userId = userData?.user?.id ?? null;
+    if (userErr || !userId) {
       return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
@@ -216,19 +219,20 @@ Deno.serve(async (req) => {
     const title = body.title ?? "ガチトレ";
     const msgBody = body.body.length > 180 ? `${body.body.slice(0, 180)}…` : body.body;
 
-    const results: Array<{ token: string; ok: boolean; error?: string }> = [];
+    const results: Array<{ ok: boolean; error?: string }> = [];
     for (const t of tokens) {
       try {
         await sendFcm(t, title, msgBody, body.data);
-        results.push({ token: t, ok: true });
+        results.push({ ok: true });
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        results.push({ token: t, ok: false, error: message });
+        results.push({ ok: false, error: message });
       }
     }
 
     const sent = results.filter((r) => r.ok).length;
-    return new Response(JSON.stringify({ ok: true, sent, results }), {
+    const failed = results.length - sent;
+    return new Response(JSON.stringify({ ok: true, sent, failed }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });

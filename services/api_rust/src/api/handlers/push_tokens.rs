@@ -68,11 +68,13 @@ pub async fn delete_push_token(
         return Err(AppError::BadRequest("token is required".to_string()));
     }
 
+    // Token is user-provided; always URL-encode when embedding into PostgREST filters
+    let token_enc = urlencoding::encode(token);
     state
         .supabase
         .delete(
             "user_push_tokens",
-            &format!("user_id=eq.{}&token=eq.{}", user.user_id, token),
+            &format!("user_id=eq.{}&token=eq.{}", user.user_id, token_enc),
             &user.token,
         )
         .await?;

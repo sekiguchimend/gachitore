@@ -52,6 +52,39 @@ class WorkoutService {
     }
   }
 
+  /// Create a user-defined exercise
+  Future<Exercise> createExercise({
+    required String name,
+    required String primaryMuscle,
+    String? equipment,
+    List<String>? secondaryMuscles,
+  }) async {
+    try {
+      final response = await _apiClient.post(
+        '/exercises',
+        data: {
+          'name': name,
+          'primary_muscle': primaryMuscle,
+          if (equipment != null) 'equipment': equipment,
+          if (secondaryMuscles != null) 'secondary_muscles': secondaryMuscles,
+        },
+      );
+
+      final e = response.data as Map<String, dynamic>;
+      return Exercise(
+        id: e['id'] ?? '',
+        name: e['name'] ?? '',
+        muscleGroup: e['primary_muscle'] ?? '',
+        e1rm: 0,
+        lastWeight: 0,
+        lastReps: 0,
+        trend: 0,
+      );
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
   /// Get exercises with user's performance data
   Future<List<Exercise>> getExercisesWithStats() async {
     try {

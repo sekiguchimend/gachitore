@@ -69,6 +69,14 @@ class PhotoService {
       throw ApiException.fromDioError(e);
     }
   }
+
+  Future<void> deletePhoto(String photoId) async {
+    try {
+      await _apiClient.delete('/photos/$photoId');
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
 }
 
 

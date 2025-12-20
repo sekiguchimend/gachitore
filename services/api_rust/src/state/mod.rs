@@ -468,7 +468,7 @@ pub fn get_system_instruction(state: &UserState) -> String {
     )
 }
 
-/// Safety guard - check for dangerous advice requests
+/// Safety guard - check for dangerous advice requests and prompt injection attempts
 pub fn check_safety_flags(message: &str) -> Vec<String> {
     let mut flags = Vec::new();
 
@@ -479,6 +479,35 @@ pub fn check_safety_flags(message: &str) -> Vec<String> {
         ("500kcal以下", "extreme_calorie_restriction"),
         ("怪我を無視", "ignoring_injury"),
         ("痛みがあるけど", "training_with_pain"),
+        // Additional dangerous substances
+        ("成長ホルモン", "growth_hormone"),
+        ("インスリン", "insulin_abuse"),
+        ("利尿剤", "diuretics"),
+        ("エフェドリン", "ephedrine"),
+        ("クレンブテロール", "clenbuterol"),
+        // Eating disorders
+        ("吐く", "purging"),
+        ("過食嘔吐", "binge_purge"),
+        ("拒食", "anorexia"),
+    ];
+
+    // Prompt injection patterns
+    let injection_patterns = [
+        ("ignore previous", "prompt_injection"),
+        ("ignore all", "prompt_injection"),
+        ("disregard", "prompt_injection"),
+        ("forget your", "prompt_injection"),
+        ("new instructions", "prompt_injection"),
+        ("system prompt", "prompt_injection"),
+        ("you are now", "prompt_injection"),
+        ("act as", "prompt_injection"),
+        ("pretend to be", "prompt_injection"),
+        ("jailbreak", "prompt_injection"),
+        ("無視して", "prompt_injection"),
+        ("命令を変更", "prompt_injection"),
+        ("システムプロンプト", "prompt_injection"),
+        ("別の指示", "prompt_injection"),
+        ("役割を変更", "prompt_injection"),
     ];
 
     let message_lower = message.to_lowercase();
@@ -489,5 +518,35 @@ pub fn check_safety_flags(message: &str) -> Vec<String> {
         }
     }
 
+    for (pattern, flag) in &injection_patterns {
+        if message_lower.contains(&pattern.to_lowercase()) {
+            flags.push(flag.to_string());
+        }
+    }
+
     flags
+}
+
+/// Sanitize user input for AI prompts
+/// Removes or escapes potentially harmful patterns
+pub fn sanitize_user_input(input: &str) -> String {
+    // Limit message length
+    let max_len = 2000;
+    let truncated = if input.len() > max_len {
+        &input[..max_len]
+    } else {
+        input
+    };
+
+    // Remove control characters except newlines
+    let sanitized: String = truncated
+        .chars()
+        .filter(|c| *c == '\n' || *c == '\t' || !c.is_control())
+        .collect();
+
+    // Escape markdown-like formatting that could confuse the model
+    sanitized
+        .replace("```", "'''")
+        .replace("<<<", "((")
+        .replace(">>>", "))")
 }

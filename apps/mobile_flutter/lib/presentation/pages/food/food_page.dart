@@ -3,14 +3,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
 import '../../../data/models/meal_models.dart';
+import '../photos/photos_page.dart';
 import '../../widgets/common/app_button.dart';
+import '../../widgets/common/info_tooltip.dart';
 
 part 'food_page.sections.dart';
 part 'food_page.meals.dart';
 part 'food_page.add_meal_sheet.dart';
 part 'food_page.manual_input_sheet.dart';
-part 'food_page.food_search_sheet.dart';
-part 'food_page.photo_add_sheet.dart';
+part 'food_page.recent_items_sheet.dart';
+part 'food_page.photo_sheet.dart';
+
+// Food page shared constants
+const List<MealType> _foodMealTypes = [
+  MealType.breakfast,
+  MealType.lunch,
+  MealType.dinner,
+  MealType.snack,
+];
 
 class FoodPage extends ConsumerStatefulWidget {
   const FoodPage({super.key});

@@ -4,13 +4,11 @@ import '../../../core/constants/app_colors.dart';
 class ChatInputField extends StatelessWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
-  final VoidCallback? onCameraTap;
 
   const ChatInputField({
     super.key,
     required this.controller,
     required this.onSend,
-    this.onCameraTap,
   });
 
   @override
@@ -25,13 +23,6 @@ class ChatInputField extends StatelessWidget {
       ),
       child: Row(
         children: [
-          IconButton(
-            onPressed: onCameraTap,
-            icon: const Icon(
-              Icons.camera_alt_outlined,
-              color: AppColors.textSecondary,
-            ),
-          ),
           Expanded(
             child: TextField(
               controller: controller,

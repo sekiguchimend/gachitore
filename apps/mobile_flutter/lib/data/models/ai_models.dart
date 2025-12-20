@@ -61,6 +61,14 @@ class Recommendation {
       payload: json['payload'] ?? {},
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'kind': kind,
+      'payload': payload,
+    };
+  }
 }
 
 class PlanTodayRequest {
@@ -211,6 +219,29 @@ class ChatMessage {
     required this.timestamp,
     this.recommendations,
   });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'content': content,
+      'is_user': isUser,
+      'timestamp': timestamp.toIso8601String(),
+      if (recommendations != null)
+        'recommendations': recommendations!.map((r) => r.toJson()).toList(),
+    };
+  }
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) {
+    return ChatMessage(
+      id: json['id'] ?? '',
+      content: json['content'] ?? '',
+      isUser: json['is_user'] ?? false,
+      timestamp: DateTime.tryParse(json['timestamp'] ?? '') ?? DateTime.now(),
+      recommendations: (json['recommendations'] as List?)
+          ?.map((r) => Recommendation.fromJson(r))
+          .toList(),
+    );
+  }
 }
 
 /// Inbox message for bot notifications (e.g., meal reminders)

@@ -1,8 +1,8 @@
 part of 'food_page.dart';
 
 extension _FoodPageManualInputSheet on _FoodPageState {
-  /// 手動入力シート（photoUrlがある場合は食事ログに紐づける）
-  void _showManualInputSheet({String? photoUrl}) {
+  /// 手動入力シート
+  void _showManualInputSheet() {
     final nameController = TextEditingController();
     final caloriesController = TextEditingController();
     final proteinController = TextEditingController();
@@ -60,36 +60,6 @@ extension _FoodPageManualInputSheet on _FoodPageState {
                     ),
                   ],
                 ),
-                if (photoUrl != null) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                    '写真を添付して記録します（内容は手動入力）',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textTertiary,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: AspectRatio(
-                      aspectRatio: 16 / 9,
-                      child: Image.network(
-                        photoUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          color: AppColors.bgSub,
-                          alignment: Alignment.center,
-                          child: const Text(
-                            '画像を表示できませんでした',
-                            style: TextStyle(color: AppColors.textTertiary),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 16),
                 const Text(
                   '食事タイプ',
@@ -102,7 +72,7 @@ extension _FoodPageManualInputSheet on _FoodPageState {
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
-                  children: _mealTypes.map((type) {
+                  children: _foodMealTypes.map((type) {
                     final isSelected = selectedMealType == type;
                     return GestureDetector(
                       onTap: () => setSheetState(() => selectedMealType = type),
@@ -138,6 +108,29 @@ extension _FoodPageManualInputSheet on _FoodPageState {
                   keyboardType: TextInputType.number,
                 ),
                 const SizedBox(height: 12),
+                Row(
+                  children: const [
+                    Text(
+                      'PFC (g)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    SizedBox(width: 6),
+                    InfoTooltip(
+                      explanation:
+                          'PFCとは、Protein（タンパク質）、Fat（脂質）、Carbohydrate（炭水化物）の頭文字を取った略語です。\n\n'
+                          '三大栄養素のバランスを表し、筋トレや体づくりにおいて重要な指標となります。\n\n'
+                          '・P（タンパク質）：筋肉の材料\n'
+                          '・F（脂質）：ホルモンの材料\n'
+                          '・C（炭水化物）：エネルギー源',
+                      size: 14,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
@@ -190,7 +183,6 @@ extension _FoodPageManualInputSheet on _FoodPageState {
                           date: _selectedDate,
                           time: DateTime.now(),
                           mealType: selectedMealType,
-                          photoUrl: photoUrl,
                           items: [
                             MealItemRequest(
                               name: name,

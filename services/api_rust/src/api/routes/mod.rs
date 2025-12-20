@@ -23,6 +23,7 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         .nest("/log", log_routes(state.clone()))
         .nest("/ai", ai_routes(state.clone()))
         .nest("/photos", photos_routes(state.clone()))
+        .nest("/support", support_routes(state.clone()))
 }
 
 /// Health check endpoint
@@ -57,6 +58,7 @@ fn users_routes(state: AppState) -> Router<AppState> {
 fn meals_routes(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/", get(handlers::get_meals))
+        .route("/recent", get(handlers::get_recent_meals))
         .route("/nutrition", get(handlers::get_nutrition))
         .route("/:id", delete(handlers::delete_meal))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
@@ -65,7 +67,7 @@ fn meals_routes(state: AppState) -> Router<AppState> {
 /// /v1/exercises/* routes (auth required)
 fn exercises_routes(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/", get(handlers::get_exercises))
+        .route("/", get(handlers::get_exercises).post(handlers::create_exercise))
         .route("/stats", get(handlers::get_exercises_with_stats))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
@@ -108,5 +110,13 @@ fn ai_routes(state: AppState) -> Router<AppState> {
 fn photos_routes(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/", get(handlers::list_photos).post(handlers::upload_photo))
+        .route("/:id", delete(handlers::delete_photo))
+        .route_layer(middleware::from_fn_with_state(state, auth_middleware))
+}
+
+/// /v1/support/* routes (auth required)
+fn support_routes(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/contact", post(handlers::create_support_contact))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }

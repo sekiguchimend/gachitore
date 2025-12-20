@@ -10,7 +10,7 @@ description = "Gachitore API - Rust Axum backend (Supabase REST API client)"
 axum = { version = "0.7", features = ["macros", "multipart"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace", "timeout"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "timeout", "catch-panic"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -37,12 +37,22 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # Validation
 validator = { version = "0.16", features = ["derive"] }
 
+# URL encoding (for safe PostgREST query construction)
+urlencoding = "2"
+
 # Async
 futures = "0.3"
 
 # Error handling
 thiserror = "1"
 anyhow = "1"
+
+# Rate limiting
+governor = "0.6"
+tower_governor = "0.4"
+
+# Regex for log masking
+regex = "1"
 
 [dev-dependencies]
 tokio-test = "0.4"

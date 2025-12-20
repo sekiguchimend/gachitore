@@ -1,14 +1,6 @@
 part of 'food_page.dart';
 
 extension _FoodPageAddMealSheet on _FoodPageState {
-  // 食事タイプの選択肢
-  static const List<MealType> _mealTypes = [
-    MealType.breakfast,
-    MealType.lunch,
-    MealType.dinner,
-    MealType.snack,
-  ];
-
   void _showAddMealSheet() {
     showModalBottomSheet(
       context: context,
@@ -55,26 +47,13 @@ extension _FoodPageAddMealSheet on _FoodPageState {
                     const SizedBox(height: 24),
                     _buildAddMealOption(
                       sheetContext,
-                      Icons.camera_alt_outlined,
-                      '写真から追加',
-                      'AIが食事を認識します',
+                      Icons.history,
+                      '履歴から選ぶ',
+                      '直近の食事から選択',
                       () {
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           if (mounted) {
-                            _showPhotoAddSheet();
-                          }
-                        });
-                      },
-                    ),
-                    _buildAddMealOption(
-                      sheetContext,
-                      Icons.search,
-                      '食品を検索',
-                      'データベースから検索',
-                      () {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (mounted) {
-                            _showFoodSearchSheet();
+                            _showRecentItemsSheet();
                           }
                         });
                       },

@@ -6,7 +6,17 @@ type MealType = "breakfast" | "lunch" | "dinner";
 
 const ALLOWED_MEAL_TYPES: MealType[] = ["breakfast", "lunch", "dinner"];
 
-const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!);
+function requireEnv(name: string): string {
+  const v = Deno.env.get(name);
+  if (!v) throw new Error(`Missing env: ${name}`);
+  return v;
+}
+
+// This function writes directly to DB (bypasses RLS). Never expose it publicly.
+// Require an internal secret header for manual invocations.
+const MEAL_REMINDER_SECRET = Deno.env.get("MEAL_REMINDER_SECRET") ?? "";
+
+const sql = postgres(requireEnv("SUPABASE_DB_URL"));
 
 function buildReminderMessage(mealType: MealType): string {
   switch (mealType) {
@@ -35,6 +45,21 @@ Deno.serve(async (req) => {
   try {
     if (req.method !== "POST") {
       return new Response("Method Not Allowed", { status: 405 });
+    }
+
+    if (!MEAL_REMINDER_SECRET) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Server not configured" }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    const provided = req.headers.get("x-meal-reminder-secret") ?? "";
+    if (provided !== MEAL_REMINDER_SECRET) {
+      return new Response(JSON.stringify({ ok: false, error: "Forbidden" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     const contentType = req.headers.get("content-type") ?? "";

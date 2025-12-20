@@ -44,11 +44,12 @@ pub struct Jwk {
     // use, key_ops, x5c, x5t, etc.
 }
 
-const JWKS_TTL: Duration = Duration::from_secs(600);
+// JWKS cache TTL: 5 minutes (shorter for faster key rotation response)
+const JWKS_TTL: Duration = Duration::from_secs(300);
 
-async fn get_jwks(state: &AppState) -> Result<Jwks, AppError> {
-    // Fast path: fresh cache
-    {
+async fn get_jwks(state: &AppState, force_refresh: bool) -> Result<Jwks, AppError> {
+    // Fast path: fresh cache (unless force refresh requested)
+    if !force_refresh {
         let guard = state.jwks_cache.read().await;
         if let Some(cached) = guard.as_ref() {
             if cached.fetched_at.elapsed() < JWKS_TTL {
@@ -59,7 +60,7 @@ async fn get_jwks(state: &AppState) -> Result<Jwks, AppError> {
 
     // Fetch JWKS
     let url = state.config.supabase_jwks_url.clone();
-    tracing::debug!("Fetching Supabase JWKS: {}", url);
+    tracing::debug!("Fetching Supabase JWKS: {} (force_refresh={})", url, force_refresh);
 
     let client = reqwest::Client::new();
     let jwks = client
@@ -81,6 +82,13 @@ async fn get_jwks(state: &AppState) -> Result<Jwks, AppError> {
     }
 
     Ok(jwks)
+}
+
+/// Invalidate JWKS cache (call when key verification fails)
+async fn invalidate_jwks_cache(state: &AppState) {
+    let mut guard = state.jwks_cache.write().await;
+    *guard = None;
+    tracing::info!("JWKS cache invalidated");
 }
 
 fn decoding_key_from_jwk(jwk: &Jwk, alg: Algorithm) -> Result<DecodingKey, AppError> {
@@ -203,12 +211,11 @@ pub async fn auth_middleware(
         .get(AUTHORIZATION)
         .and_then(|v| v.to_str().ok());
 
-    tracing::debug!("Auth header: {:?}", auth_header);
-
     let token = match auth_header {
         Some(header) if header.starts_with("Bearer ") => &header[7..],
         Some(header) => {
-            tracing::warn!("Authorization header doesn't start with 'Bearer ': {}", header);
+            // Do not log the header value (it may contain credentials)
+            tracing::warn!("Authorization header doesn't start with 'Bearer '");
             return Err(StatusCode::UNAUTHORIZED);
         }
         None => {
@@ -217,7 +224,7 @@ pub async fn auth_middleware(
         }
     };
 
-    tracing::debug!("Token received (length: {})", token.len());
+    tracing::debug!("Bearer token received (length: {})", token.len());
 
     // Validate JWT
     match validate_jwt(token, &state).await {
@@ -273,28 +280,54 @@ async fn validate_jwt(token: &str, state: &AppState) -> Result<Claims, AppError>
             let kid = header.kid.clone().ok_or_else(|| {
                 AppError::InvalidToken("ES* token missing kid in header".to_string())
             })?;
-            let jwks = get_jwks(state).await?;
-            let jwk = jwks
+            // Try with cached JWKS first, then refresh if key not found
+            let mut jwks = get_jwks(state, false).await?;
+            let mut jwk = jwks
                 .keys
                 .iter()
-                .find(|k| k.kid.as_deref() == Some(kid.as_str()))
-                .ok_or_else(|| {
-                    AppError::InvalidToken(format!("No matching JWKS key for kid={}", kid))
-                })?;
+                .find(|k| k.kid.as_deref() == Some(kid.as_str()));
+
+            // If key not found in cache, force refresh JWKS (key rotation may have occurred)
+            if jwk.is_none() {
+                tracing::info!("Key kid={} not found in cached JWKS, refreshing...", kid);
+                invalidate_jwks_cache(state).await;
+                jwks = get_jwks(state, true).await?;
+                jwk = jwks
+                    .keys
+                    .iter()
+                    .find(|k| k.kid.as_deref() == Some(kid.as_str()));
+            }
+
+            let jwk = jwk.ok_or_else(|| {
+                AppError::InvalidToken(format!("No matching JWKS key for kid={}", kid))
+            })?;
             decoding_key_from_jwk(jwk, header.alg)?
         }
         Algorithm::RS256 | Algorithm::RS384 | Algorithm::RS512 => {
             let kid = header.kid.clone().ok_or_else(|| {
                 AppError::InvalidToken("RS* token missing kid in header".to_string())
             })?;
-            let jwks = get_jwks(state).await?;
-            let jwk = jwks
+            // Try with cached JWKS first, then refresh if key not found
+            let mut jwks = get_jwks(state, false).await?;
+            let mut jwk = jwks
                 .keys
                 .iter()
-                .find(|k| k.kid.as_deref() == Some(kid.as_str()))
-                .ok_or_else(|| {
-                    AppError::InvalidToken(format!("No matching JWKS key for kid={}", kid))
-                })?;
+                .find(|k| k.kid.as_deref() == Some(kid.as_str()));
+
+            // If key not found in cache, force refresh JWKS (key rotation may have occurred)
+            if jwk.is_none() {
+                tracing::info!("Key kid={} not found in cached JWKS, refreshing...", kid);
+                invalidate_jwks_cache(state).await;
+                jwks = get_jwks(state, true).await?;
+                jwk = jwks
+                    .keys
+                    .iter()
+                    .find(|k| k.kid.as_deref() == Some(kid.as_str()));
+            }
+
+            let jwk = jwk.ok_or_else(|| {
+                AppError::InvalidToken(format!("No matching JWKS key for kid={}", kid))
+            })?;
             decoding_key_from_jwk(jwk, header.alg)?
         }
         _ => {

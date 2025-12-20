@@ -30,6 +30,31 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     super.dispose();
   }
 
+  // Email format validation
+  bool _isValidEmail(String email) {
+    final emailRegex = RegExp(
+      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+    );
+    return emailRegex.hasMatch(email);
+  }
+
+  // Password strength validation
+  String? _validatePassword(String password) {
+    if (password.length < 8) {
+      return 'パスワードは8文字以上で入力してください';
+    }
+    if (!RegExp(r'[a-z]').hasMatch(password)) {
+      return 'パスワードには小文字を含めてください';
+    }
+    if (!RegExp(r'[A-Z]').hasMatch(password)) {
+      return 'パスワードには大文字を含めてください';
+    }
+    if (!RegExp(r'[0-9]').hasMatch(password)) {
+      return 'パスワードには数字を含めてください';
+    }
+    return null;
+  }
+
   Future<void> _handleSubmit() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
@@ -39,9 +64,19 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       return;
     }
 
-    if (_isSignUp && password.length < 8) {
-      setState(() => _errorMessage = 'パスワードは8文字以上で入力してください');
+    // Email format validation
+    if (!_isValidEmail(email)) {
+      setState(() => _errorMessage = '有効なメールアドレスを入力してください');
       return;
+    }
+
+    // Password strength validation for sign up
+    if (_isSignUp) {
+      final passwordError = _validatePassword(password);
+      if (passwordError != null) {
+        setState(() => _errorMessage = passwordError);
+        return;
+      }
     }
 
     setState(() {
@@ -51,13 +86,21 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
     try {
       final authService = ref.read(authServiceProvider);
+      final appSettings = ref.read(appSettingsServiceProvider);
 
       if (_isSignUp) {
         await authService.signUp(email: email, password: password);
         // GoRouterのredirectが未ログイン扱いのままだと/loginに戻されるので、
         // ログイン状態を明示的に更新する
         AppRouter.authNotifier.setLoggedIn(true);
-        unawaited(ref.read(pushNotificationServiceProvider).initializeAndSync(platform: 'app'));
+        final pushEnabled = await appSettings.isPushNotificationsEnabled();
+        if (pushEnabled) {
+          unawaited(
+            ref
+                .read(pushNotificationServiceProvider)
+                .initializeAndSync(platform: 'app'),
+          );
+        }
         // After sign up, navigate to setup for onboarding
         if (mounted) {
           context.go('/setup');
@@ -66,7 +109,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         await authService.signIn(email: email, password: password);
         // GoRouterのredirectが未ログイン扱いのままだと遷移できないため更新
         AppRouter.authNotifier.setLoggedIn(true);
-        unawaited(ref.read(pushNotificationServiceProvider).initializeAndSync(platform: 'app'));
+        final pushEnabled = await appSettings.isPushNotificationsEnabled();
+        if (pushEnabled) {
+          unawaited(
+            ref
+                .read(pushNotificationServiceProvider)
+                .initializeAndSync(platform: 'app'),
+          );
+        }
         // Check if onboarding is completed
         final isOnboarded = await authService.isOnboardingCompleted();
         if (mounted) {
@@ -87,42 +137,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         errorMessage = 'メールアドレスの確認が完了していません';
       }
       setState(() => _errorMessage = errorMessage);
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  Future<void> _handleGoogleSignIn() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final authService = ref.read(authServiceProvider);
-      await authService.signInWithGoogle();
-    } catch (e) {
-      setState(() => _errorMessage = 'Googleログインに失敗しました');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  Future<void> _handleAppleSignIn() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final authService = ref.read(authServiceProvider);
-      await authService.signInWithApple();
-    } catch (e) {
-      setState(() => _errorMessage = 'Appleログインに失敗しました');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -180,31 +194,21 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 ),
               ),
 
-              const SizedBox(height: 60),
+              const SizedBox(height: 48),
 
-              // Toggle Login/SignUp
+              // Section title
               Center(
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: AppColors.bgCard,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildToggleButton('ログイン', !_isSignUp, () {
-                        setState(() => _isSignUp = false);
-                      }),
-                      _buildToggleButton('新規登録', _isSignUp, () {
-                        setState(() => _isSignUp = true);
-                      }),
-                    ],
+                child: Text(
+                  _isSignUp ? '新規登録' : 'ログイン',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.textPrimary,
                   ),
                 ),
               ),
 
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
 
               // Error message
               if (_errorMessage != null) ...[
@@ -270,10 +274,13 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               const SizedBox(height: 24),
 
               // Submit button
-              AppButton(
-                text: _isSignUp ? '新規登録' : 'ログイン',
-                onPressed: _handleSubmit,
-                isLoading: _isLoading,
+              SizedBox(
+                width: double.infinity,
+                child: AppButton(
+                  text: _isSignUp ? '新規登録' : 'ログイン',
+                  onPressed: _handleSubmit,
+                  isLoading: _isLoading,
+                ),
               ),
 
               const SizedBox(height: 16),
@@ -299,63 +306,39 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
               const SizedBox(height: 32),
 
-              // Divider with text
-              Row(
-                children: [
-                  const Expanded(child: Divider(color: AppColors.border)),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      'または',
-                      style: TextStyle(
+              // Switch between login and signup
+              Center(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _isSignUp ? 'すでにアカウントをお持ちの方は' : 'アカウントをお持ちでない方は',
+                      style: const TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textTertiary,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
                       ),
                     ),
-                  ),
-                  const Expanded(child: Divider(color: AppColors.border)),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-
-              // Social login buttons
-              AppOutlinedButton(
-                text: 'Googleでログイン',
-                icon: Icons.g_mobiledata,
-                onPressed: _handleGoogleSignIn,
-              ),
-
-              const SizedBox(height: 12),
-
-              AppOutlinedButton(
-                text: 'Appleでログイン',
-                icon: Icons.apple,
-                onPressed: _handleAppleSignIn,
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _isSignUp = !_isSignUp;
+                          _errorMessage = null;
+                        });
+                      },
+                      child: Text(
+                        _isSignUp ? 'ログイン' : '新規登録',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.greenPrimary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildToggleButton(String text, bool isSelected, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.greenPrimary : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            color: isSelected ? AppColors.textPrimary : AppColors.textSecondary,
           ),
         ),
       ),

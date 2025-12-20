@@ -58,7 +58,7 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
                   fit: BoxFit.contain,
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 4),
               // App name
               const Text(
                 'ガチトレ',

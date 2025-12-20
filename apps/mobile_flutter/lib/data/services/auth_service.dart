@@ -1,48 +1,32 @@
 import 'package:dio/dio.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api/api_client.dart';
+import '../../core/auth/secure_token_storage.dart';
 
 class AuthService {
   final ApiClient _apiClient;
-  SharedPreferences? _prefs;
-
-  static const String _accessTokenKey = 'access_token';
-  static const String _refreshTokenKey = 'refresh_token';
-  static const String _userIdKey = 'user_id';
-  static const String _userEmailKey = 'user_email';
 
   AuthService({
     required ApiClient apiClient,
   }) : _apiClient = apiClient;
 
-  Future<SharedPreferences> _getPrefs() async {
-    _prefs ??= await SharedPreferences.getInstance();
-    return _prefs!;
-  }
-
   // Check if user is authenticated
   Future<bool> get isAuthenticated async {
-    final prefs = await _getPrefs();
-    final token = prefs.getString(_accessTokenKey);
-    return token != null;
+    return await SecureTokenStorage.hasCredentials();
   }
 
   // Get current user ID
   Future<String?> get currentUserId async {
-    final prefs = await _getPrefs();
-    return prefs.getString(_userIdKey);
+    return await SecureTokenStorage.getUserId();
   }
 
   // Get current user email
   Future<String?> get currentUserEmail async {
-    final prefs = await _getPrefs();
-    return prefs.getString(_userEmailKey);
+    return await SecureTokenStorage.getUserEmail();
   }
 
   // Get current token
   Future<String?> getToken() async {
-    final prefs = await _getPrefs();
-    return prefs.getString(_accessTokenKey);
+    return await SecureTokenStorage.getAccessToken();
   }
 
   // Sign up with email and password
@@ -89,16 +73,6 @@ class AuthService {
     }
   }
 
-  // Sign in with Google (not supported via API - would need OAuth flow)
-  Future<bool> signInWithGoogle() async {
-    throw UnimplementedError('Google sign-in requires OAuth flow');
-  }
-
-  // Sign in with Apple (not supported via API - would need OAuth flow)
-  Future<bool> signInWithApple() async {
-    throw UnimplementedError('Apple sign-in requires OAuth flow');
-  }
-
   // Sign out
   Future<void> signOut() async {
     try {
@@ -123,8 +97,7 @@ class AuthService {
 
   // Refresh session
   Future<void> refreshSession() async {
-    final prefs = await _getPrefs();
-    final refreshToken = prefs.getString(_refreshTokenKey);
+    final refreshToken = await SecureTokenStorage.getRefreshToken();
     if (refreshToken == null) {
       throw Exception('No refresh token available');
     }
@@ -187,6 +160,7 @@ class AuthService {
         data: {
           'goal': goal,
           'training_level': level,  // DBカラム名に合わせる
+          'weight_kg': weight, // 体重も送る（body_metrics の登録に必要）
           'height_cm': height.round(),  // DBカラム名に合わせる
           'birth_year': birthYear,  // DBカラム名に合わせる
           'sex': sex,
@@ -221,6 +195,10 @@ class AuthService {
     double? weightKg,
     Map<String, dynamic>? environment,
     List<Map<String, dynamic>>? constraints,
+    int? targetCalories,
+    int? targetProteinG,
+    int? targetFatG,
+    int? targetCarbsG,
   }) async {
     final data = <String, dynamic>{};
     
@@ -233,6 +211,10 @@ class AuthService {
     if (weightKg != null) data['weight_kg'] = weightKg;
     if (environment != null) data['environment'] = environment;
     if (constraints != null) data['constraints'] = constraints;
+    if (targetCalories != null) data['target_calories'] = targetCalories;
+    if (targetProteinG != null) data['target_protein_g'] = targetProteinG;
+    if (targetFatG != null) data['target_fat_g'] = targetFatG;
+    if (targetCarbsG != null) data['target_carbs_g'] = targetCarbsG;
 
     try {
       await _apiClient.patch('/users/profile', data: data);
@@ -241,23 +223,18 @@ class AuthService {
     }
   }
 
-  // Save auth data to storage
+  // Save auth data to secure storage
   Future<void> _saveAuthData(AuthResponse response) async {
-    final prefs = await _getPrefs();
-    await prefs.setString(_accessTokenKey, response.accessToken);
-    await prefs.setString(_refreshTokenKey, response.refreshToken);
-    await prefs.setString(_userIdKey, response.user.id);
-    await prefs.setString(_userEmailKey, response.user.email);
+    await SecureTokenStorage.setAccessToken(response.accessToken);
+    await SecureTokenStorage.setRefreshToken(response.refreshToken);
+    await SecureTokenStorage.setUserId(response.user.id);
+    await SecureTokenStorage.setUserEmail(response.user.email);
     await _apiClient.setToken(response.accessToken);
   }
 
-  // Clear auth data from storage
+  // Clear auth data from secure storage
   Future<void> _clearAuthData() async {
-    final prefs = await _getPrefs();
-    await prefs.remove(_accessTokenKey);
-    await prefs.remove(_refreshTokenKey);
-    await prefs.remove(_userIdKey);
-    await prefs.remove(_userEmailKey);
+    await SecureTokenStorage.clearAll();
     await _apiClient.clearToken();
   }
 
