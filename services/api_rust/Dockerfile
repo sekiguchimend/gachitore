@@ -10,7 +10,7 @@ RUN cargo build --release
 
 # Build actual binary
 COPY services/api_rust/src ./src
-RUN cargo build --release
+RUN touch src/main.rs && cargo build --release
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
