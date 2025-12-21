@@ -9,7 +9,7 @@ class ApiClient {
   static const String _baseUrlKey = 'api_base_url';
 
   // Production API URL - HTTPS required
-  static const String _prodBaseUrl = 'https://api.gachitore.com/v1';
+  static const String _prodBaseUrl = 'https://gachitore.fly.dev/v1';
   // Development API URL
   static const String _devBaseUrl = 'http://localhost:8080/v1';
 
