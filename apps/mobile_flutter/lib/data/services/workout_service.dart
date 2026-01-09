@@ -125,11 +125,36 @@ class WorkoutService {
     }
   }
 
-  /// Get workout details
+  /// Get workout details (raw map)
   Future<Map<String, dynamic>> getWorkoutDetails(String workoutId) async {
     try {
       final response = await _apiClient.get('/workouts/$workoutId');
       return response.data;
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
+  /// Get workouts list (typed)
+  Future<List<WorkoutListItem>> getWorkouts({int limit = 20, int offset = 0}) async {
+    try {
+      final response = await _apiClient.get(
+        '/workouts',
+        queryParameters: {'limit': limit, 'offset': offset},
+      );
+      return (response.data as List)
+          .map((w) => WorkoutListItem.fromJson(w))
+          .toList();
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
+  /// Get workout detail (typed)
+  Future<WorkoutDetail> getWorkoutDetail(String workoutId) async {
+    try {
+      final response = await _apiClient.get('/workouts/$workoutId');
+      return WorkoutDetail.fromJson(response.data);
     } on DioException catch (e) {
       throw ApiException.fromDioError(e);
     }

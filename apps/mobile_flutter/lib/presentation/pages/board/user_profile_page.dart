@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
+import '../../../data/models/meal_models.dart';
 
 /// ユーザープロフィールページ
 ///
@@ -29,24 +30,30 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   bool _loading = true;
   String? _error;
   List<String> _workoutDates = [];
+  List<MealEntry> _todayMeals = [];
 
   @override
   void initState() {
     super.initState();
-    _loadWorkoutDates();
+    _loadData();
   }
 
-  Future<void> _loadWorkoutDates() async {
+  Future<void> _loadData() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final boardService = ref.read(boardServiceProvider);
-      final dates = await boardService.getUserWorkoutDates(widget.userId);
+      // ワークアウト履歴と今日の食事を並列で取得
+      final results = await Future.wait([
+        boardService.getUserWorkoutDates(widget.userId),
+        boardService.getUserMealsToday(widget.userId),
+      ]);
       if (!mounted) return;
       setState(() {
-        _workoutDates = dates;
+        _workoutDates = results[0] as List<String>;
+        _todayMeals = results[1] as List<MealEntry>;
         _loading = false;
       });
     } catch (e) {
@@ -132,6 +139,9 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
           const SizedBox(height: 32),
           // Training grass（追加で取得）
           _buildWorkoutSection(),
+          const SizedBox(height: 24),
+          // Today's meals
+          _buildTodayMealsSection(),
           const SizedBox(height: 32),
         ],
       ),
@@ -166,7 +176,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
             const Icon(Icons.error_outline, color: AppColors.textTertiary),
             const SizedBox(height: 8),
             TextButton(
-              onPressed: _loadWorkoutDates,
+              onPressed: _loadData,
               child: const Text('再読み込み'),
             ),
           ],
@@ -213,6 +223,191 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
         ),
       ),
     );
+  }
+
+  Widget _buildTodayMealsSection() {
+    if (_loading) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.restaurant_outlined,
+                color: AppColors.greenPrimary,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                '今日の食事',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const Spacer(),
+              if (_todayMeals.isNotEmpty)
+                Text(
+                  '${_todayMeals.fold(0, (sum, m) => sum + m.totalCalories)} kcal',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_todayMeals.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.restaurant_outlined,
+                      size: 32,
+                      color: AppColors.textTertiary,
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'まだ記録されていません',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textTertiary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            ..._todayMeals.map((meal) => _buildMealCard(meal)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMealCard(MealEntry meal) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: AppColors.bgSub,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          leading: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: _getMealColor(meal.type).withOpacity(0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              _getMealIcon(meal.type),
+              color: _getMealColor(meal.type),
+              size: 18,
+            ),
+          ),
+          title: Text(
+            meal.type.displayName,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          subtitle: Text(
+            '${meal.totalCalories} kcal • P ${meal.totalProtein.round()}g',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textTertiary,
+            ),
+          ),
+          trailing: Text(
+            '${meal.time.hour}:${meal.time.minute.toString().padLeft(2, '0')}',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textTertiary,
+            ),
+          ),
+          children: [
+            ...meal.items.map((item) => _buildMealItemRow(item)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMealItemRow(MealItem item) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              item.name,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+          Text(
+            '${item.calories} kcal',
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getMealIcon(MealType type) {
+    switch (type) {
+      case MealType.breakfast:
+        return Icons.wb_sunny_outlined;
+      case MealType.lunch:
+        return Icons.wb_cloudy_outlined;
+      case MealType.dinner:
+        return Icons.nights_stay_outlined;
+      default:
+        return Icons.cookie_outlined;
+    }
+  }
+
+  Color _getMealColor(MealType type) {
+    switch (type) {
+      case MealType.breakfast:
+        return AppColors.warning;
+      case MealType.lunch:
+        return AppColors.greenPrimary;
+      case MealType.dinner:
+        return AppColors.info;
+      default:
+        return AppColors.textSecondary;
+    }
   }
 }
 

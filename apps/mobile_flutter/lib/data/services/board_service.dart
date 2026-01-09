@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/api/api_client.dart';
 import '../models/board_models.dart';
+import '../models/meal_models.dart';
 
 /// 掲示板サービス
 class BoardService {
@@ -106,6 +107,28 @@ class BoardService {
     } on DioException catch (e) {
       throw ApiException.fromDioError(e);
     }
+  }
+
+  /// ユーザーの今日の食事を取得（プロフィール表示用）
+  Future<List<MealEntry>> getUserMealsToday(String userId) async {
+    try {
+      final res = await _apiClient.get('/users/$userId/meals/today');
+      final meals = (res.data as List?)
+              ?.map((m) => MealEntry.fromJson(_convertMealItemsKey(m as Map<String, dynamic>)))
+              .toList() ??
+          [];
+      return meals;
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
+  /// APIレスポンスのmeal_itemsをitemsに変換
+  Map<String, dynamic> _convertMealItemsKey(Map<String, dynamic> json) {
+    if (json.containsKey('meal_items')) {
+      json['items'] = json['meal_items'];
+    }
+    return json;
   }
 }
 

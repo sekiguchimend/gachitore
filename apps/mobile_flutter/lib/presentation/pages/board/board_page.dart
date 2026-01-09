@@ -6,7 +6,24 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
 import '../../../data/models/board_models.dart';
+import '../../../data/models/meal_models.dart';
 import 'user_profile_page.dart';
+
+/// 添付データの種類
+enum AttachmentType { workout, meal }
+
+/// 添付データ
+class PostAttachment {
+  final AttachmentType type;
+  final String summary;
+  final String details;
+
+  const PostAttachment({
+    required this.type,
+    required this.summary,
+    required this.details,
+  });
+}
 
 class BoardPage extends ConsumerStatefulWidget {
   const BoardPage({super.key});
@@ -30,6 +47,7 @@ class _BoardPageState extends ConsumerState<BoardPage> {
   final _composeFocusNode = FocusNode();
   XFile? _selectedImage;
   bool _posting = false;
+  PostAttachment? _attachment;
 
   @override
   void initState() {
@@ -164,7 +182,13 @@ class _BoardPageState extends ConsumerState<BoardPage> {
     final content = _composeController.text.trim();
     if (content.isEmpty || _posting) return;
 
-    if (content.length > 1000) {
+    // 添付がある場合はコンテンツに追加
+    String finalContent = content;
+    if (_attachment != null) {
+      finalContent = '$content\n\n${_attachment!.details}';
+    }
+
+    if (finalContent.length > 1000) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('1000文字以内で入力してください'),
@@ -175,15 +199,127 @@ class _BoardPageState extends ConsumerState<BoardPage> {
     }
 
     setState(() => _posting = true);
-    final success = await _createPost(content, _selectedImage);
+    final success = await _createPost(finalContent, _selectedImage);
     if (!mounted) return;
 
     if (success) {
       _composeController.clear();
-      setState(() => _selectedImage = null);
+      setState(() {
+        _selectedImage = null;
+        _attachment = null;
+      });
       _composeFocusNode.unfocus();
     }
     setState(() => _posting = false);
+  }
+
+  Future<void> _attachWorkout() async {
+    try {
+      final workoutService = ref.read(workoutServiceProvider);
+      final workouts = await workoutService.getWorkouts(limit: 5);
+
+      // 今日のワークアウトを探す
+      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final todayWorkouts = workouts.where((w) => w.date == today).toList();
+
+      if (todayWorkouts.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('今日のトレーニング記録がありません'),
+            backgroundColor: AppColors.textTertiary,
+          ),
+        );
+        return;
+      }
+
+      // 最新のワークアウトを取得
+      final workout = todayWorkouts.first;
+      final detail = await workoutService.getWorkoutDetail(workout.id);
+
+      // 添付テキスト生成
+      final buffer = StringBuffer();
+      buffer.writeln('🏋️ 今日のトレーニング');
+      for (final ex in detail.exercises) {
+        final bestSet = ex.sets.where((s) => !s.isWarmup).fold<({double weight, int reps})>(
+          (weight: 0, reps: 0),
+          (best, s) => (s.weightKg ?? 0) > best.weight
+              ? (weight: s.weightKg ?? 0, reps: s.reps ?? 0)
+              : best,
+        );
+        if (bestSet.weight > 0) {
+          buffer.writeln('・${ex.exerciseName} ${bestSet.weight}kg x ${bestSet.reps}rep');
+        } else {
+          buffer.writeln('・${ex.exerciseName}');
+        }
+      }
+      buffer.write('合計${detail.exercises.length}種目完了！');
+
+      if (!mounted) return;
+      setState(() {
+        _attachment = PostAttachment(
+          type: AttachmentType.workout,
+          summary: '${detail.exercises.length}種目のトレーニング',
+          details: buffer.toString(),
+        );
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('トレーニングデータの取得に失敗しました: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _attachMeal() async {
+    try {
+      final mealService = ref.read(mealServiceProvider);
+      final today = DateTime.now();
+      final meals = await mealService.getMealsForDate(today);
+
+      if (meals.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('今日の食事記録がありません'),
+            backgroundColor: AppColors.textTertiary,
+          ),
+        );
+        return;
+      }
+
+      // 添付テキスト生成
+      final buffer = StringBuffer();
+      buffer.writeln('🍽️ 今日の食事');
+      int totalCalories = 0;
+      int totalProtein = 0;
+      for (final meal in meals) {
+        totalCalories += meal.totalCalories;
+        totalProtein += meal.totalProtein.round();
+        buffer.writeln('・${meal.type.displayName}: ${meal.totalCalories}kcal');
+      }
+      buffer.write('合計: ${totalCalories}kcal / P${totalProtein}g');
+
+      if (!mounted) return;
+      setState(() {
+        _attachment = PostAttachment(
+          type: AttachmentType.meal,
+          summary: '${meals.length}食 ${totalCalories}kcal',
+          details: buffer.toString(),
+        );
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('食事データの取得に失敗しました: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
 
   Future<bool> _createPost(String content, XFile? image) async {
@@ -447,6 +583,11 @@ class _BoardPageState extends ConsumerState<BoardPage> {
                     ],
                   ),
                 ],
+                // Attachment preview
+                if (_attachment != null) ...[
+                  const SizedBox(height: 8),
+                  _buildAttachmentPreview(),
+                ],
                 const SizedBox(height: 8),
                 // Action row
                 Row(
@@ -457,8 +598,25 @@ class _BoardPageState extends ConsumerState<BoardPage> {
                     ),
                     const SizedBox(width: 16),
                     GestureDetector(
-                      onTap: () => _pickImage(ImageSource.camera),
-                      child: const Icon(Icons.camera_alt_outlined, color: AppColors.greenPrimary, size: 20),
+                      onTap: _attachment?.type == AttachmentType.workout ? null : _attachWorkout,
+                      child: Icon(
+                        Icons.fitness_center,
+                        color: _attachment?.type == AttachmentType.workout
+                            ? AppColors.greenPrimary
+                            : AppColors.textTertiary,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    GestureDetector(
+                      onTap: _attachment?.type == AttachmentType.meal ? null : _attachMeal,
+                      child: Icon(
+                        Icons.restaurant_outlined,
+                        color: _attachment?.type == AttachmentType.meal
+                            ? AppColors.greenPrimary
+                            : AppColors.textTertiary,
+                        size: 20,
+                      ),
                     ),
                     const Spacer(),
                     GestureDetector(
@@ -488,6 +646,64 @@ class _BoardPageState extends ConsumerState<BoardPage> {
                   ],
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAttachmentPreview() {
+    final att = _attachment!;
+    final icon = att.type == AttachmentType.workout
+        ? Icons.fitness_center
+        : Icons.restaurant_outlined;
+    final color = att.type == AttachmentType.workout
+        ? AppColors.info
+        : AppColors.warning;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  att.type == AttachmentType.workout ? '今日のトレーニング' : '今日の食事',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
+                Text(
+                  att.summary,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: () => setState(() => _attachment = null),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: AppColors.textTertiary.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.close, color: AppColors.textSecondary, size: 14),
             ),
           ),
         ],
@@ -769,11 +985,12 @@ class _PostTile extends StatelessWidget {
                       height: 1.4,
                     ),
                   ),
-                  // Image
+                  // Image (uses thumbnail for fast loading)
                   if (post.imageUrl != null) ...[
                     const SizedBox(height: 12),
                     _PostImage(
                       imageUrl: post.imageUrl!,
+                      thumbnailUrl: post.thumbnailUrl,
                       onTap: onImageTap,
                     ),
                   ],
@@ -824,27 +1041,33 @@ class _PostTile extends StatelessWidget {
 }
 
 // Separate widget to prevent unnecessary rebuilds
+// Uses thumbnail for fast loading, falls back to original if thumbnail unavailable
 class _PostImage extends StatelessWidget {
   final String imageUrl;
+  final String? thumbnailUrl;
   final VoidCallback? onTap;
 
   const _PostImage({
     required this.imageUrl,
+    this.thumbnailUrl,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Use thumbnail if available, otherwise use original
+    final displayUrl = thumbnailUrl ?? imageUrl;
+
     return GestureDetector(
       onTap: onTap,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: Image.network(
-          imageUrl,
+          displayUrl,
           fit: BoxFit.cover,
           width: double.infinity,
           height: 180,
-          cacheWidth: 800,
+          cacheWidth: 400, // Match thumbnail size for memory efficiency
           loadingBuilder: (_, child, progress) {
             if (progress == null) return child;
             return Container(

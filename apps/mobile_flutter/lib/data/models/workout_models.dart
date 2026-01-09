@@ -170,3 +170,127 @@ class WorkoutSession {
     );
   }
 }
+
+/// Workout list item (from API)
+class WorkoutListItem {
+  final String id;
+  final String date;
+  final String name;
+  final int exerciseCount;
+  final int durationMinutes;
+  final double totalVolume;
+
+  WorkoutListItem({
+    required this.id,
+    required this.date,
+    required this.name,
+    required this.exerciseCount,
+    required this.durationMinutes,
+    required this.totalVolume,
+  });
+
+  factory WorkoutListItem.fromJson(Map<String, dynamic> json) {
+    return WorkoutListItem(
+      id: json['id'] ?? '',
+      date: json['date'] ?? '',
+      name: json['name'] ?? 'ワークアウト',
+      exerciseCount: json['exercise_count'] ?? 0,
+      durationMinutes: json['duration_minutes'] ?? 0,
+      totalVolume: (json['total_volume'] ?? 0).toDouble(),
+    );
+  }
+}
+
+/// Workout detail (from API)
+class WorkoutDetail {
+  final String id;
+  final String date;
+  final String? startTime;
+  final String? endTime;
+  final int? perceivedFatigue;
+  final String? note;
+  final List<WorkoutExerciseDetail> exercises;
+
+  WorkoutDetail({
+    required this.id,
+    required this.date,
+    this.startTime,
+    this.endTime,
+    this.perceivedFatigue,
+    this.note,
+    required this.exercises,
+  });
+
+  factory WorkoutDetail.fromJson(Map<String, dynamic> json) {
+    return WorkoutDetail(
+      id: json['id'] ?? '',
+      date: json['date'] ?? '',
+      startTime: json['start_time'],
+      endTime: json['end_time'],
+      perceivedFatigue: json['perceived_fatigue'],
+      note: json['note'],
+      exercises: (json['exercises'] as List?)
+              ?.map((e) => WorkoutExerciseDetail.fromJson(e))
+              .toList() ??
+          [],
+    );
+  }
+}
+
+class WorkoutExerciseDetail {
+  final String id;
+  final String? exerciseId;
+  final String exerciseName;
+  final String muscleTag;
+  final List<WorkoutSetDetail> sets;
+
+  WorkoutExerciseDetail({
+    required this.id,
+    this.exerciseId,
+    required this.exerciseName,
+    required this.muscleTag,
+    required this.sets,
+  });
+
+  factory WorkoutExerciseDetail.fromJson(Map<String, dynamic> json) {
+    return WorkoutExerciseDetail(
+      id: json['id'] ?? '',
+      exerciseId: json['exercise_id'],
+      exerciseName: json['exercise_name'] ?? 'Unknown',
+      muscleTag: json['muscle_tag'] ?? '',
+      sets: (json['sets'] as List?)
+              ?.map((s) => WorkoutSetDetail.fromJson(s))
+              .toList() ??
+          [],
+    );
+  }
+}
+
+class WorkoutSetDetail {
+  final int setIndex;
+  final double? weightKg;
+  final int? reps;
+  final double? rpe;
+  final bool isWarmup;
+  final bool isDropset;
+
+  WorkoutSetDetail({
+    required this.setIndex,
+    this.weightKg,
+    this.reps,
+    this.rpe,
+    required this.isWarmup,
+    required this.isDropset,
+  });
+
+  factory WorkoutSetDetail.fromJson(Map<String, dynamic> json) {
+    return WorkoutSetDetail(
+      setIndex: json['set_index'] ?? 1,
+      weightKg: json['weight_kg']?.toDouble(),
+      reps: json['reps'],
+      rpe: json['rpe']?.toDouble(),
+      isWarmup: json['is_warmup'] ?? false,
+      isDropset: json['is_dropset'] ?? false,
+    );
+  }
+}

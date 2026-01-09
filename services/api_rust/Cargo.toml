@@ -54,6 +54,12 @@ tower_governor = "0.4"
 # Regex for log masking
 regex = "1"
 
+# Caching for signed URLs
+moka = { version = "0.12", features = ["future"] }
+
+# Image processing (for thumbnail generation)
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+
 [dev-dependencies]
 tokio-test = "0.4"
 

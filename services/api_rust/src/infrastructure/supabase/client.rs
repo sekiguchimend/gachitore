@@ -1,7 +1,19 @@
+use moka::future::Cache;
 use reqwest::{Client, StatusCode};
 use serde::{de::DeserializeOwned, Serialize};
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use crate::error::{AppError, AppResult};
+
+/// Global cache for signed URLs (TTL: 50 minutes, max 10,000 entries)
+/// Key: "bucket:path", Value: signed URL
+static SIGNED_URL_CACHE: LazyLock<Cache<String, String>> = LazyLock::new(|| {
+    Cache::builder()
+        .max_capacity(10_000)
+        .time_to_live(Duration::from_secs(50 * 60)) // 50 minutes (URLs expire in 60 min)
+        .build()
+});
 
 #[derive(Debug, serde::Deserialize)]
 struct PostgrestErrorBody {
@@ -346,6 +358,7 @@ impl SupabaseClient {
     }
 
     /// Get a signed URL for a storage object (uses anon key)
+    /// Results are cached for 50 minutes for performance
     pub async fn get_signed_url(
         &self,
         bucket: &str,
@@ -353,6 +366,12 @@ impl SupabaseClient {
         expires_in: i32,
         access_token: &str,
     ) -> AppResult<String> {
+        // Check cache first
+        let cache_key = format!("{}:{}", bucket, path);
+        if let Some(cached_url) = SIGNED_URL_CACHE.get(&cache_key).await {
+            return Ok(cached_url);
+        }
+
         let url = format!(
             "{}/storage/v1/object/sign/{}/{}",
             self.base_url, bucket, path
@@ -390,14 +409,25 @@ impl SupabaseClient {
 
         let sign_response: SignResponse = response.json().await?;
         let signed_url = sign_response.signed_url;
-        if signed_url.starts_with("http://") || signed_url.starts_with("https://") {
-            Ok(signed_url)
+        let full_url = if signed_url.starts_with("http://") || signed_url.starts_with("https://") {
+            signed_url
         } else if signed_url.starts_with("/storage/v1") {
-            Ok(format!("{}{}", self.base_url, signed_url))
+            format!("{}{}", self.base_url, signed_url)
         } else {
             // Supabase returns "/object/sign/..." without "/storage/v1" prefix
-            Ok(format!("{}/storage/v1{}", self.base_url, signed_url))
-        }
+            format!("{}/storage/v1{}", self.base_url, signed_url)
+        };
+
+        // Cache the result
+        SIGNED_URL_CACHE.insert(cache_key, full_url.clone()).await;
+
+        Ok(full_url)
+    }
+
+    /// Invalidate cached signed URL (call after delete/update)
+    pub fn invalidate_signed_url_cache(bucket: &str, path: &str) {
+        let cache_key = format!("{}:{}", bucket, path);
+        SIGNED_URL_CACHE.invalidate(&cache_key);
     }
 
     /// Upload an object to Supabase Storage (uses anon key + user JWT for RLS)
@@ -409,6 +439,9 @@ impl SupabaseClient {
         content_type: &str,
         access_token: &str,
     ) -> AppResult<()> {
+        // Invalidate cache for this path (in case of upsert)
+        Self::invalidate_signed_url_cache(bucket, path);
+
         let url = format!(
             "{}/storage/v1/object/{}/{}",
             self.base_url, bucket, path
@@ -444,6 +477,9 @@ impl SupabaseClient {
         path: &str,
         access_token: &str,
     ) -> AppResult<()> {
+        // Invalidate cache for this path
+        Self::invalidate_signed_url_cache(bucket, path);
+
         let url = format!(
             "{}/storage/v1/object/{}/{}",
             self.base_url, bucket, path

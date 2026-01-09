@@ -3,7 +3,9 @@ use axum::{
     Extension, Json,
 };
 use futures::future::join_all;
+use image::ImageReader;
 use serde::{Deserialize, Serialize};
+use std::io::Cursor;
 use uuid::Uuid;
 
 use crate::{
@@ -30,8 +32,10 @@ pub struct PostItemResponse {
     pub id: String,
     pub user_id: String,
     pub display_name: String,
+    pub avatar_url: Option<String>,
     pub content: String,
     pub image_url: Option<String>,
+    pub thumbnail_url: Option<String>,
     pub created_at: String,
 }
 
@@ -54,9 +58,9 @@ pub async fn list_posts(
     let limit = q.limit.unwrap_or(50).clamp(1, 100);
     let offset = q.offset.unwrap_or(0).max(0);
 
-    // Fetch posts with user profile join
+    // Fetch posts with user profile join (include avatar_path)
     let query = format!(
-        "select=*,user_profiles(display_name)&order=created_at.desc&limit={}&offset={}",
+        "select=*,user_profiles(display_name,avatar_path)&order=created_at.desc&limit={}&offset={}",
         limit, offset
     );
 
@@ -65,35 +69,71 @@ pub async fn list_posts(
         .select("posts", &query, &user.token)
         .await?;
 
-    // Fetch signed URLs for images in parallel
+    // Fetch signed URLs for images, thumbnails, and avatars in parallel
     let url_futures: Vec<_> = posts
         .iter()
-        .map(|p| async {
-            if let Some(ref path) = p.image_path {
-                state
-                    .supabase
-                    .get_signed_url("user-photos", path, 3600, &user.token)
-                    .await
-                    .ok()
-            } else {
-                None
+        .map(|p| {
+            let state = &state;
+            let token = &user.token;
+            async move {
+                // Image URL (original)
+                let image_url = if let Some(ref path) = p.image_path {
+                    state
+                        .supabase
+                        .get_signed_url("user-photos", path, 3600, token)
+                        .await
+                        .ok()
+                } else {
+                    None
+                };
+
+                // Thumbnail URL (for fast list loading)
+                let thumbnail_url = if let Some(ref path) = p.image_path {
+                    let thumb_path = get_thumbnail_path(path);
+                    state
+                        .supabase
+                        .get_signed_url("user-photos", &thumb_path, 3600, token)
+                        .await
+                        .ok()
+                } else {
+                    None
+                };
+
+                // Avatar URL
+                let avatar_url = if let Some(ref profile) = p.user_profiles {
+                    if let Some(ref avatar_path) = profile.avatar_path {
+                        state
+                            .supabase
+                            .get_signed_url("user-photos", avatar_path, 3600, token)
+                            .await
+                            .ok()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                (image_url, thumbnail_url, avatar_url)
             }
         })
         .collect();
 
-    let urls: Vec<Option<String>> = join_all(url_futures).await;
+    let urls: Vec<(Option<String>, Option<String>, Option<String>)> = join_all(url_futures).await;
 
     let items: Vec<PostItemResponse> = posts
         .into_iter()
         .zip(urls)
-        .map(|(p, url)| PostItemResponse {
+        .map(|(p, (image_url, thumbnail_url, avatar_url))| PostItemResponse {
             id: p.id,
             user_id: p.user_id.clone(),
             display_name: p.user_profiles
                 .map(|up| up.display_name)
                 .unwrap_or_else(|| "匿名".to_string()),
+            avatar_url,
             content: p.content,
-            image_url: url,
+            image_url,
+            thumbnail_url,
             created_at: p.created_at,
         })
         .collect();
@@ -153,7 +193,7 @@ pub async fn create_post(
         return Err(AppError::BadRequest("content is too long (max 1000 chars)".to_string()));
     }
 
-    // Upload image if provided
+    // Upload image if provided (with thumbnail generation)
     let image_path = if let Some(bytes) = image_bytes {
         if bytes.len() > 10 * 1024 * 1024 {
             return Err(AppError::BadRequest("image is too large (max 10MB)".to_string()));
@@ -163,10 +203,33 @@ pub async fn create_post(
         let object_id = Uuid::new_v4().to_string();
         let object_path = format!("{}/{}.{}", user.user_id, object_id, ext);
 
-        state
-            .supabase
-            .upload_object("user-photos", &object_path, bytes, &validated_content_type, &user.token)
-            .await?;
+        // Generate thumbnail (400px width, JPEG for speed)
+        let thumbnail_bytes = generate_thumbnail(&bytes, 400)?;
+        let thumbnail_path = format!("{}/{}_thumb.jpg", user.user_id, object_id);
+
+        // Upload original and thumbnail in parallel
+        let (original_result, thumbnail_result) = tokio::join!(
+            state.supabase.upload_object(
+                "user-photos",
+                &object_path,
+                bytes,
+                &validated_content_type,
+                &user.token
+            ),
+            state.supabase.upload_object(
+                "user-photos",
+                &thumbnail_path,
+                thumbnail_bytes,
+                "image/jpeg",
+                &user.token
+            )
+        );
+
+        original_result?;
+        // Thumbnail failure is non-critical, just log it
+        if let Err(e) = thumbnail_result {
+            tracing::warn!("Failed to upload thumbnail: {}", e);
+        }
 
         Some(object_path)
     } else {
@@ -185,36 +248,55 @@ pub async fn create_post(
         .insert("posts", &insert_data, &user.token)
         .await?;
 
-    // Get signed URL for the image
-    let image_url = if let Some(ref path) = created.image_path {
-        state
-            .supabase
-            .get_signed_url("user-photos", path, 3600, &user.token)
-            .await
-            .ok()
+    // Get signed URLs for image and thumbnail
+    let (image_url, thumbnail_url) = if let Some(ref path) = created.image_path {
+        let thumb_path = get_thumbnail_path(path);
+        let (img, thumb) = tokio::join!(
+            state.supabase.get_signed_url("user-photos", path, 3600, &user.token),
+            state.supabase.get_signed_url("user-photos", &thumb_path, 3600, &user.token)
+        );
+        (img.ok(), thumb.ok())
     } else {
-        None
+        (None, None)
     };
 
-    // Get user's display name
-    let profile_query = format!("user_id=eq.{}&select=display_name", user.user_id);
+    // Get user's display name and avatar
+    let profile_query = format!("user_id=eq.{}&select=display_name,avatar_path", user.user_id);
     let profiles: Vec<UserProfileMinimal> = state
         .supabase
         .select("user_profiles", &profile_query, &user.token)
         .await
         .unwrap_or_default();
-    let display_name = profiles
-        .first()
+
+    let profile = profiles.first();
+    let display_name = profile
         .map(|p| p.display_name.clone())
         .unwrap_or_else(|| "匿名".to_string());
+
+    // Get avatar URL
+    let avatar_url = if let Some(p) = profile {
+        if let Some(ref avatar_path) = p.avatar_path {
+            state
+                .supabase
+                .get_signed_url("user-photos", avatar_path, 3600, &user.token)
+                .await
+                .ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     Ok(Json(CreatePostResponse {
         post: PostItemResponse {
             id: created.id,
             user_id: created.user_id,
             display_name,
+            avatar_url,
             content: created.content,
             image_url,
+            thumbnail_url,
             created_at: created.created_at,
         },
     }))
@@ -278,6 +360,7 @@ struct PostWithProfile {
 #[derive(Debug, Clone, Deserialize)]
 struct UserProfileMinimal {
     pub display_name: String,
+    pub avatar_path: Option<String>,
 }
 
 /// Validate image format by checking magic bytes
@@ -332,5 +415,41 @@ fn validate_image_magic_bytes(bytes: &[u8]) -> AppResult<(&'static str, String)>
     Err(AppError::BadRequest(
         "サポートされていない画像形式です。JPEG、PNG、WebP、HEICのいずれかをアップロードしてください。".to_string(),
     ))
+}
+
+/// Generate a thumbnail from image bytes (resized to max_width, JPEG output)
+fn generate_thumbnail(bytes: &[u8], max_width: u32) -> AppResult<Vec<u8>> {
+    let reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| AppError::BadRequest(format!("画像の読み込みに失敗しました: {}", e)))?;
+
+    let img = reader
+        .decode()
+        .map_err(|e| AppError::BadRequest(format!("画像のデコードに失敗しました: {}", e)))?;
+
+    // Only resize if wider than max_width
+    let resized = if img.width() > max_width {
+        img.thumbnail(max_width, max_width * 2) // Maintain aspect ratio
+    } else {
+        img
+    };
+
+    // Encode as JPEG (quality 80 - good balance of size/quality)
+    let mut output = Cursor::new(Vec::new());
+    resized
+        .write_to(&mut output, image::ImageFormat::Jpeg)
+        .map_err(|e| AppError::BadRequest(format!("サムネイル生成に失敗しました: {}", e)))?;
+
+    Ok(output.into_inner())
+}
+
+/// Get thumbnail path from original image path
+fn get_thumbnail_path(original_path: &str) -> String {
+    // "user_id/uuid.jpg" -> "user_id/uuid_thumb.jpg"
+    if let Some(dot_pos) = original_path.rfind('.') {
+        format!("{}_thumb.jpg", &original_path[..dot_pos])
+    } else {
+        format!("{}_thumb.jpg", original_path)
+    }
 }
 

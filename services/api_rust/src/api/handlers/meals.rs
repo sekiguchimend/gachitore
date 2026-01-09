@@ -277,6 +277,63 @@ pub async fn get_nutrition(
     }))
 }
 
+/// GET /users/:user_id/meals/today - Get another user's meals for today (public view)
+pub async fn get_user_meals_today(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
+    Path(target_user_id): Path<String>,
+) -> AppResult<Json<Vec<MealEntry>>> {
+    // Validate target user_id
+    let validated_user_id = validate_uuid(&target_user_id)?;
+
+    // Get today's date in UTC
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+    let query = format!(
+        "user_id=eq.{}&date=eq.{}&select=id,date,time,meal_type,note,meal_items(id,name,quantity,unit,calories,protein_g,fat_g,carbs_g)&order=time",
+        validated_user_id, today
+    );
+
+    let meals: Vec<serde_json::Value> = state
+        .supabase
+        .select("meals", &query, &user.token)
+        .await?;
+
+    let result: Vec<MealEntry> = meals
+        .into_iter()
+        .map(|m| {
+            let items = m["meal_items"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .map(|i| MealItem {
+                            id: i["id"].as_str().unwrap_or_default().to_string(),
+                            name: i["name"].as_str().unwrap_or_default().to_string(),
+                            quantity: i["quantity"].as_f64(),
+                            unit: i["unit"].as_str().map(String::from),
+                            calories: i["calories"].as_i64().unwrap_or(0) as i32,
+                            protein_g: i["protein_g"].as_f64().unwrap_or(0.0),
+                            fat_g: i["fat_g"].as_f64().unwrap_or(0.0),
+                            carbs_g: i["carbs_g"].as_f64().unwrap_or(0.0),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            MealEntry {
+                id: m["id"].as_str().unwrap_or_default().to_string(),
+                date: m["date"].as_str().unwrap_or_default().to_string(),
+                time: m["time"].as_str().map(String::from),
+                meal_type: m["meal_type"].as_str().unwrap_or_default().to_string(),
+                note: None, // Hide private notes
+                items,
+            }
+        })
+        .collect();
+
+    Ok(Json(result))
+}
+
 /// DELETE /meals/:id
 pub async fn delete_meal(
     State(state): State<AppState>,

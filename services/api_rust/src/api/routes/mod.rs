@@ -52,6 +52,8 @@ fn users_routes(state: AppState) -> Router<AppState> {
             "/push-token",
             post(handlers::upsert_push_token).delete(handlers::delete_push_token),
         )
+        .route("/:id/workout-dates", get(handlers::get_user_workout_dates))
+        .route("/:id/meals/today", get(handlers::get_user_meals_today))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 

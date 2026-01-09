@@ -697,3 +697,47 @@ fn validate_avatar_image(bytes: &[u8]) -> AppResult<(&'static str, String)> {
         "Unsupported image format. Use JPEG, PNG, or WebP.".to_string(),
     ))
 }
+
+// =============================================================================
+// Get User Workout Dates (for profile grass display)
+// =============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct WorkoutDatesResponse {
+    pub dates: Vec<String>,
+}
+
+/// GET /users/:id/workout-dates - get workout dates for a specific user
+pub async fn get_user_workout_dates(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
+    axum::extract::Path(user_id): axum::extract::Path<String>,
+) -> AppResult<Json<WorkoutDatesResponse>> {
+    // Validate user_id is a valid UUID
+    let _: Uuid = user_id
+        .parse()
+        .map_err(|_| AppError::BadRequest("Invalid user ID".to_string()))?;
+
+    // Get workout dates for the user (past 12 weeks = 84 days)
+    let query = format!(
+        "user_id=eq.{}&select=date&order=date.desc&limit=84",
+        user_id
+    );
+
+    let workouts: Vec<serde_json::Value> = state
+        .supabase
+        .select("workouts", &query, &user.token)
+        .await?;
+
+    // Extract unique dates
+    let mut dates: Vec<String> = workouts
+        .into_iter()
+        .filter_map(|w| w["date"].as_str().map(String::from))
+        .collect();
+
+    // Remove duplicates (in case of multiple workouts per day)
+    dates.sort();
+    dates.dedup();
+
+    Ok(Json(WorkoutDatesResponse { dates }))
+}

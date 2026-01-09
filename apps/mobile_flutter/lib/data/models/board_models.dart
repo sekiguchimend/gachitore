@@ -6,6 +6,7 @@ class BoardPost {
   final String? avatarUrl;
   final String content;
   final String? imageUrl;
+  final String? thumbnailUrl;
   final String createdAt;
 
   const BoardPost({
@@ -15,6 +16,7 @@ class BoardPost {
     this.avatarUrl,
     required this.content,
     this.imageUrl,
+    this.thumbnailUrl,
     required this.createdAt,
   });
 
@@ -26,6 +28,7 @@ class BoardPost {
       avatarUrl: json['avatar_url']?.toString(),
       content: json['content']?.toString() ?? '',
       imageUrl: json['image_url']?.toString(),
+      thumbnailUrl: json['thumbnail_url']?.toString(),
       createdAt: json['created_at']?.toString() ?? '',
     );
   }
