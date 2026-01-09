@@ -6,7 +6,7 @@ import '../../presentation/pages/setup/setup_page.dart';
 import '../../presentation/pages/home/home_page.dart';
 import '../../presentation/pages/food/food_page.dart';
 import '../../presentation/pages/muscle/muscle_page.dart';
-import '../../presentation/pages/photos/photos_page.dart';
+import '../../presentation/pages/board/board_page.dart';
 import '../../presentation/pages/settings/settings_page.dart';
 import '../../presentation/pages/support/privacy_policy_page.dart';
 import '../../presentation/pages/support/support_contact_page.dart';
@@ -176,9 +176,9 @@ class AppRouter {
             ),
           ),
           GoRoute(
-            path: '/photos',
+            path: '/board',
             pageBuilder: (context, state) => const NoTransitionPage(
-              child: PhotosPage(),
+              child: BoardPage(),
             ),
           ),
           GoRoute(
@@ -205,7 +205,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
-  static const _routes = ['/home', '/food', '/muscle', '/photos', '/settings'];
+  static const _routes = ['/home', '/food', '/muscle', '/board', '/settings'];
 
   @override
   void didChangeDependencies() {
@@ -248,7 +248,7 @@ class _MainShellState extends State<MainShell> {
                 _buildNavItem(0, Icons.home_outlined, Icons.home, 'ホーム'),
                 _buildNavItem(1, Icons.restaurant_outlined, Icons.restaurant, '食事'),
                 _buildNavItem(2, Icons.fitness_center_outlined, Icons.fitness_center, 'トレーニング'),
-                _buildNavItem(3, Icons.photo_library_outlined, Icons.photo_library, '写真'),
+                _buildNavItem(3, Icons.forum_outlined, Icons.forum, '掲示板'),
                 _buildNavItem(4, Icons.settings_outlined, Icons.settings, '設定'),
               ],
             ),

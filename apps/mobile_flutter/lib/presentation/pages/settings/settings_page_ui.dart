@@ -83,15 +83,21 @@ extension _SettingsPageUi on _SettingsPageState {
   }
 
   Widget _buildStatsSummary() {
+    // ボリュームの表示を整形（小数点1桁）
+    final volumeStr = _totalVolume >= 1
+        ? _totalVolume.toStringAsFixed(1)
+        : (_totalVolume * 1000).toStringAsFixed(0);
+    final volumeUnit = _totalVolume >= 1 ? 't' : 'kg';
+
     return Container(
       margin: const EdgeInsets.all(16),
       child: Row(
         children: [
-          Expanded(child: _buildStatCard('ワークアウト', '47', '回')),
+          Expanded(child: _buildStatCard('ワークアウト', '$_totalWorkouts', '回')),
           const SizedBox(width: 12),
-          Expanded(child: _buildStatCard('連続日数', '12', '日')),
+          Expanded(child: _buildStatCard('連続日数', '$_streakDays', '日')),
           const SizedBox(width: 12),
-          Expanded(child: _buildStatCard('総ボリューム', '234', 't')),
+          Expanded(child: _buildStatCard('総ボリューム', volumeStr, volumeUnit)),
         ],
       ),
     );

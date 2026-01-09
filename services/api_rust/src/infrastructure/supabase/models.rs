@@ -101,15 +101,14 @@ pub struct AiMessage {
     pub created_at: String,
 }
 
+/// 掲示板の投稿
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserPhoto {
+pub struct Post {
     pub id: String,
     pub user_id: String,
-    pub bucket_id: String,
-    pub object_path: String,
-    pub taken_at: Option<String>,
+    pub content: String,
+    pub image_path: Option<String>,
     pub created_at: String,
-    pub meta: Option<serde_json::Value>,
 }
 
 

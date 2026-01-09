@@ -10,45 +10,321 @@ extension _MusclePageHistory on _MusclePageState {
       );
     }
 
-    if (_recentWorkouts.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.history,
-              size: 48,
-              color: AppColors.textTertiary,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'ワークアウト履歴がありません',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
     // 日付ごとにグループ化
     final groupedWorkouts = _groupWorkoutsByDate(_recentWorkouts);
 
     return RefreshIndicator(
       onRefresh: _loadWorkoutHistory,
       color: AppColors.greenPrimary,
-      child: ListView.builder(
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
-        itemCount: groupedWorkouts.length,
-        itemBuilder: (context, index) {
-          final entry = groupedWorkouts.entries.elementAt(index);
-          return _buildDaySection(entry.key, entry.value);
-        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // GitHub草スタイルのコントリビューショングラフ
+            _buildContributionGraph(),
+            const SizedBox(height: 24),
+            // ワークアウト履歴リスト
+            if (_recentWorkouts.isEmpty)
+              _buildEmptyState()
+            else
+              ...groupedWorkouts.entries.map(
+                (entry) => _buildDaySection(entry.key, entry.value),
+              ),
+            const SizedBox(height: 80),
+          ],
+        ),
       ),
     );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(height: 40),
+          Icon(
+            Icons.history,
+            size: 48,
+            color: AppColors.textTertiary,
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'ワークアウト履歴がありません',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// GitHub草スタイルのコントリビューショングラフ
+  Widget _buildContributionGraph() {
+    // 過去16週間分のデータを表示
+    const weeksToShow = 16;
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+
+    // 今週の日曜日を取得（週の開始）
+    final currentWeekStart = todayDate.subtract(Duration(days: todayDate.weekday % 7));
+
+    // 16週間前の日曜日
+    final startDate = currentWeekStart.subtract(const Duration(days: (weeksToShow - 1) * 7));
+
+    // ワークアウトデータをマップに変換（日付 -> ボリューム）
+    final workoutMap = <DateTime, double>{};
+    for (final workout in _recentWorkouts) {
+      final dateKey = DateTime(
+        workout.date.year,
+        workout.date.month,
+        workout.date.day,
+      );
+      workoutMap[dateKey] = (workoutMap[dateKey] ?? 0) + workout.totalVolume;
+    }
+
+    // 最大ボリュームを取得（色の濃さの計算用）
+    final maxVolume = workoutMap.values.isEmpty
+        ? 1.0
+        : workoutMap.values.reduce((a, b) => a > b ? a : b);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ヘッダー
+          Row(
+            children: [
+              const Text(
+                'ワークアウト記録',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${_recentWorkouts.length}回',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // 月ラベル
+          _buildMonthLabels(startDate, weeksToShow),
+          const SizedBox(height: 4),
+          // グラフ本体
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 曜日ラベル
+              _buildDayLabels(),
+              const SizedBox(width: 4),
+              // グリッド
+              Expanded(
+                child: _buildGrid(startDate, weeksToShow, workoutMap, maxVolume, todayDate),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // 凡例
+          _buildLegend(),
+        ],
+      ),
+    );
+  }
+
+  /// 月ラベル
+  Widget _buildMonthLabels(DateTime startDate, int weeksToShow) {
+    final months = <String>[];
+    final positions = <int>[];
+    String? lastMonth;
+
+    for (int week = 0; week < weeksToShow; week++) {
+      final weekStart = startDate.add(Duration(days: week * 7));
+      final monthName = _getMonthName(weekStart.month);
+      if (monthName != lastMonth) {
+        months.add(monthName);
+        positions.add(week);
+        lastMonth = monthName;
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 20),
+      child: SizedBox(
+        height: 14,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final cellWidth = constraints.maxWidth / weeksToShow;
+            return Stack(
+              children: [
+                for (int i = 0; i < months.length; i++)
+                  Positioned(
+                    left: positions[i] * cellWidth,
+                    child: Text(
+                      months[i],
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textTertiary,
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// 曜日ラベル
+  Widget _buildDayLabels() {
+    const days = ['', '月', '', '水', '', '金', ''];
+    return Column(
+      children: days.map((day) => SizedBox(
+        height: 13,
+        width: 16,
+        child: Text(
+          day,
+          style: const TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textTertiary,
+          ),
+        ),
+      )).toList(),
+    );
+  }
+
+  /// グリッド本体
+  Widget _buildGrid(
+    DateTime startDate,
+    int weeksToShow,
+    Map<DateTime, double> workoutMap,
+    double maxVolume,
+    DateTime today,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cellSize = (constraints.maxWidth / weeksToShow) - 2;
+        final actualCellSize = cellSize.clamp(8.0, 13.0);
+
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(weeksToShow, (weekIndex) {
+            return Column(
+              children: List.generate(7, (dayIndex) {
+                final date = startDate.add(Duration(days: weekIndex * 7 + dayIndex));
+                final volume = workoutMap[date] ?? 0;
+                final isFuture = date.isAfter(today);
+
+                return Container(
+                  width: actualCellSize,
+                  height: actualCellSize,
+                  margin: const EdgeInsets.all(1),
+                  decoration: BoxDecoration(
+                    color: isFuture
+                        ? Colors.transparent
+                        : _getContributionColor(volume, maxVolume),
+                    borderRadius: BorderRadius.circular(2),
+                    border: isFuture
+                        ? Border.all(color: AppColors.border.withValues(alpha: 0.3), width: 0.5)
+                        : null,
+                  ),
+                );
+              }),
+            );
+          }),
+        );
+      },
+    );
+  }
+
+  /// ボリュームに基づいて色を取得
+  Color _getContributionColor(double volume, double maxVolume) {
+    if (volume <= 0) {
+      return AppColors.bgSub;
+    }
+
+    final ratio = volume / maxVolume;
+
+    if (ratio < 0.25) {
+      return const Color(0xFF0E4429); // 薄い緑
+    } else if (ratio < 0.5) {
+      return const Color(0xFF006D32); // 中間の緑
+    } else if (ratio < 0.75) {
+      return const Color(0xFF26A641); // 濃い緑
+    } else {
+      return const Color(0xFF39D353); // 最も濃い緑
+    }
+  }
+
+  /// 凡例
+  Widget _buildLegend() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        const Text(
+          'Less',
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textTertiary,
+          ),
+        ),
+        const SizedBox(width: 4),
+        _buildLegendCell(AppColors.bgSub),
+        _buildLegendCell(const Color(0xFF0E4429)),
+        _buildLegendCell(const Color(0xFF006D32)),
+        _buildLegendCell(const Color(0xFF26A641)),
+        _buildLegendCell(const Color(0xFF39D353)),
+        const SizedBox(width: 4),
+        const Text(
+          'More',
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textTertiary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLegendCell(Color color) {
+    return Container(
+      width: 10,
+      height: 10,
+      margin: const EdgeInsets.symmetric(horizontal: 1),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(2),
+      ),
+    );
+  }
+
+  String _getMonthName(int month) {
+    const months = ['1月', '2月', '3月', '4月', '5月', '6月',
+                    '7月', '8月', '9月', '10月', '11月', '12月'];
+    return months[month - 1];
   }
 
   /// ワークアウトを日付でグループ化

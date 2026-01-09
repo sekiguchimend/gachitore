@@ -22,7 +22,7 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         .nest("/dashboard", dashboard_routes(state.clone()))
         .nest("/log", log_routes(state.clone()))
         .nest("/ai", ai_routes(state.clone()))
-        .nest("/photos", photos_routes(state.clone()))
+        .nest("/posts", posts_routes(state.clone()))
         .nest("/support", support_routes(state.clone()))
 }
 
@@ -106,11 +106,11 @@ fn ai_routes(state: AppState) -> Router<AppState> {
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 
-/// /v1/photos/* routes (auth required)
-fn photos_routes(state: AppState) -> Router<AppState> {
+/// /v1/posts/* routes (auth required) - 掲示板
+fn posts_routes(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/", get(handlers::list_photos).post(handlers::upload_photo))
-        .route("/:id", delete(handlers::delete_photo))
+        .route("/", get(handlers::list_posts).post(handlers::create_post))
+        .route("/:id", delete(handlers::delete_post))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 

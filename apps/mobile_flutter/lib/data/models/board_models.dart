@@ -1,0 +1,58 @@
+/// 掲示板の投稿モデル
+class BoardPost {
+  final String id;
+  final String userId;
+  final String displayName;
+  final String content;
+  final String? imageUrl;
+  final String createdAt;
+
+  BoardPost({
+    required this.id,
+    required this.userId,
+    required this.displayName,
+    required this.content,
+    this.imageUrl,
+    required this.createdAt,
+  });
+
+  factory BoardPost.fromJson(Map<String, dynamic> json) {
+    return BoardPost(
+      id: json['id']?.toString() ?? '',
+      userId: json['user_id']?.toString() ?? '',
+      displayName: json['display_name']?.toString() ?? '匿名',
+      content: json['content']?.toString() ?? '',
+      imageUrl: json['image_url']?.toString(),
+      createdAt: json['created_at']?.toString() ?? '',
+    );
+  }
+}
+
+class ListPostsResponse {
+  final List<BoardPost> posts;
+
+  ListPostsResponse({required this.posts});
+
+  factory ListPostsResponse.fromJson(Map<String, dynamic> json) {
+    final list = (json['posts'] as List?) ?? [];
+    return ListPostsResponse(
+      posts: list
+          .whereType<Map<String, dynamic>>()
+          .map(BoardPost.fromJson)
+          .toList(),
+    );
+  }
+}
+
+class CreatePostResponse {
+  final BoardPost post;
+
+  CreatePostResponse({required this.post});
+
+  factory CreatePostResponse.fromJson(Map<String, dynamic> json) {
+    return CreatePostResponse(
+      post: BoardPost.fromJson(json['post'] as Map<String, dynamic>),
+    );
+  }
+}
+

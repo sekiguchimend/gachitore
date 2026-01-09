@@ -21,36 +21,22 @@ extension _FoodPageSections on _FoodPageState {
             ),
             Positioned(
               right: 0,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    onPressed: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: _selectedDate,
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime.now(),
-                      );
-                      if (picked != null) {
-                        _onDateChanged(picked);
-                      }
-                    },
-                    icon: const Icon(
-                      Icons.calendar_month_outlined,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () {
-                      _showPhotoAddSheet();
-                    },
-                    icon: const Icon(
-                      Icons.camera_alt_outlined,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
+              child: IconButton(
+                onPressed: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: _selectedDate,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                  );
+                  if (picked != null) {
+                    _onDateChanged(picked);
+                  }
+                },
+                icon: const Icon(
+                  Icons.calendar_month_outlined,
+                  color: AppColors.textSecondary,
+                ),
               ),
             ),
           ],

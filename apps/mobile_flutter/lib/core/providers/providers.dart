@@ -5,7 +5,7 @@ import '../../data/services/dashboard_service.dart';
 import '../../data/services/workout_service.dart';
 import '../../data/services/meal_service.dart';
 import '../../data/services/ai_service.dart';
-import '../../data/services/photo_service.dart';
+import '../../data/services/board_service.dart';
 import '../../data/services/push_notification_service.dart';
 import '../../data/services/app_settings_service.dart';
 import '../../data/services/support_service.dart';
@@ -50,9 +50,9 @@ final aiServiceProvider = Provider<AiService>((ref) {
   );
 });
 
-// Photo service provider
-final photoServiceProvider = Provider<PhotoService>((ref) {
-  return PhotoService(
+// Board service provider (掲示板)
+final boardServiceProvider = Provider<BoardService>((ref) {
+  return BoardService(
     apiClient: ref.watch(apiClientProvider),
   );
 });

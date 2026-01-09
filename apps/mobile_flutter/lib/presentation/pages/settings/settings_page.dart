@@ -27,11 +27,17 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   bool _notificationsEnabled = true;
 
+  // ワークアウト統計
+  int _totalWorkouts = 0;
+  int _streakDays = 0;
+  double _totalVolume = 0;
+
   @override
   void initState() {
     super.initState();
     _loadUserProfile();
     _loadNotificationSetting();
+    _loadWorkoutStats();
   }
 
   Future<void> _loadNotificationSetting() async {
@@ -42,6 +48,80 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       setState(() => _notificationsEnabled = enabled);
     } catch (_) {
       // ignore (defaults to true)
+    }
+  }
+
+  Future<void> _loadWorkoutStats() async {
+    try {
+      final workoutService = ref.read(workoutServiceProvider);
+      final workouts = await workoutService.getWorkoutHistory(limit: 1000);
+
+      if (!mounted) return;
+
+      // 総ワークアウト数
+      final totalWorkouts = workouts.length;
+
+      // 総ボリューム（トン単位）
+      double totalVolume = 0;
+      for (final w in workouts) {
+        totalVolume += w.totalVolume;
+      }
+      // kgからトンに変換
+      totalVolume = totalVolume / 1000;
+
+      // 連続日数（ストリーク）を計算
+      int streakDays = 0;
+      if (workouts.isNotEmpty) {
+        // 日付でソート（新しい順）
+        final sortedWorkouts = List.of(workouts)
+          ..sort((a, b) => b.date.compareTo(a.date));
+
+        final today = DateTime.now();
+        final todayDate = DateTime(today.year, today.month, today.day);
+
+        // 最新のワークアウトが今日か昨日かをチェック
+        final latestDate = DateTime(
+          sortedWorkouts.first.date.year,
+          sortedWorkouts.first.date.month,
+          sortedWorkouts.first.date.day,
+        );
+
+        final daysDiff = todayDate.difference(latestDate).inDays;
+        if (daysDiff <= 1) {
+          // ストリークをカウント
+          streakDays = 1;
+          DateTime? prevDate = latestDate;
+
+          for (int i = 1; i < sortedWorkouts.length; i++) {
+            final currentDate = DateTime(
+              sortedWorkouts[i].date.year,
+              sortedWorkouts[i].date.month,
+              sortedWorkouts[i].date.day,
+            );
+
+            final diff = prevDate!.difference(currentDate).inDays;
+            if (diff == 0) {
+              // 同じ日、スキップ
+              continue;
+            } else if (diff == 1) {
+              // 連続日
+              streakDays++;
+              prevDate = currentDate;
+            } else {
+              // 連続が途切れた
+              break;
+            }
+          }
+        }
+      }
+
+      setState(() {
+        _totalWorkouts = totalWorkouts;
+        _streakDays = streakDays;
+        _totalVolume = totalVolume;
+      });
+    } catch (e) {
+      // エラー時はデフォルト値のまま
     }
   }
 
