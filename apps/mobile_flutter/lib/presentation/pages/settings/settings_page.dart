@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'dart:async';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
@@ -24,6 +25,7 @@ class SettingsPage extends ConsumerStatefulWidget {
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   UserProfile? _user;
   bool _isLoading = true;
+  bool _isUploadingAvatar = false;
 
   bool _notificationsEnabled = true;
 
@@ -216,6 +218,79 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ),
         );
       }
+    }
+  }
+
+  void _showAvatarPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.bgCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library, color: AppColors.greenPrimary),
+                title: const Text('ギャラリーから選択', style: TextStyle(color: AppColors.textPrimary)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndUploadAvatar(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt, color: AppColors.greenPrimary),
+                title: const Text('カメラで撮影', style: TextStyle(color: AppColors.textPrimary)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndUploadAvatar(ImageSource.camera);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadAvatar(ImageSource source) async {
+    if (_isUploadingAvatar) return;
+
+    final picker = ImagePicker();
+    final file = await picker.pickImage(source: source, imageQuality: 85, maxWidth: 512, maxHeight: 512);
+    if (file == null) return;
+
+    setState(() => _isUploadingAvatar = true);
+
+    try {
+      final authService = ref.read(authServiceProvider);
+      final newAvatarUrl = await authService.uploadAvatar(file);
+      
+      if (!mounted) return;
+      setState(() {
+        _user = _user?.copyWith(avatarUrl: newAvatarUrl);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('アイコンを更新しました'),
+          backgroundColor: AppColors.greenPrimary,
+          duration: Duration(seconds: 1),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('アップロードに失敗しました: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isUploadingAvatar = false);
     }
   }
 

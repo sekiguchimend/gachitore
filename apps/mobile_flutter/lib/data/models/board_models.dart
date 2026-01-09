@@ -3,14 +3,16 @@ class BoardPost {
   final String id;
   final String userId;
   final String displayName;
+  final String? avatarUrl;
   final String content;
   final String? imageUrl;
   final String createdAt;
 
-  BoardPost({
+  const BoardPost({
     required this.id,
     required this.userId,
     required this.displayName,
+    this.avatarUrl,
     required this.content,
     this.imageUrl,
     required this.createdAt,
@@ -21,6 +23,7 @@ class BoardPost {
       id: json['id']?.toString() ?? '',
       userId: json['user_id']?.toString() ?? '',
       displayName: json['display_name']?.toString() ?? '匿名',
+      avatarUrl: json['avatar_url']?.toString(),
       content: json['content']?.toString() ?? '',
       imageUrl: json['image_url']?.toString(),
       createdAt: json['created_at']?.toString() ?? '',

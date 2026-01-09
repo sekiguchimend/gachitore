@@ -1,9 +1,10 @@
 use axum::{
-    extract::{rejection::JsonRejection, State},
+    extract::{rejection::JsonRejection, Multipart, State},
     Extension, Json,
 };
 use chrono::Datelike;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{
     api::middleware::AuthUser,
@@ -117,6 +118,7 @@ pub struct UserProfile {
     pub target_protein_g: Option<f64>,
     pub target_fat_g: Option<f64>,
     pub target_carbs_g: Option<f64>,
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -190,6 +192,21 @@ pub async fn get_profile(
 
     let metric = metrics.into_iter().next();
 
+    // Get avatar URL if avatar_path exists
+    let avatar_url = if let Some(ref p) = profile {
+        if let Some(avatar_path) = p["avatar_path"].as_str() {
+            state
+                .supabase
+                .get_signed_url("user-photos", avatar_path, 3600, &user.token)
+                .await
+                .ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     Ok(Json(UserProfile {
         user_id: user.user_id.clone(),
         email: Some(user.email.clone()),
@@ -207,6 +224,7 @@ pub async fn get_profile(
         target_protein_g: profile.as_ref().and_then(|p| p["target_protein_g"].as_f64()),
         target_fat_g: profile.as_ref().and_then(|p| p["target_fat_g"].as_f64()),
         target_carbs_g: profile.as_ref().and_then(|p| p["target_carbs_g"].as_f64()),
+        avatar_url,
     }))
 }
 
@@ -541,4 +559,141 @@ pub async fn update_profile(
     Ok(Json(MessageResponse {
         message: "Profile updated successfully".to_string(),
     }))
+}
+
+// =============================================================================
+// Avatar Upload
+// =============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct UploadAvatarResponse {
+    pub avatar_url: String,
+}
+
+/// POST /users/avatar - upload avatar image
+pub async fn upload_avatar(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
+    mut multipart: Multipart,
+) -> AppResult<Json<UploadAvatarResponse>> {
+    // Get the file from multipart
+    let mut bytes: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Invalid multipart: {}", e)))?
+    {
+        if field.name() != Some("file") {
+            continue;
+        }
+
+        let data = field
+            .bytes()
+            .await
+            .map_err(|e| AppError::BadRequest(format!("Failed to read file: {}", e)))?;
+        bytes = Some(data.to_vec());
+        break;
+    }
+
+    let bytes = bytes.ok_or_else(|| AppError::BadRequest("file is required".to_string()))?;
+
+    if bytes.is_empty() {
+        return Err(AppError::BadRequest("file is empty".to_string()));
+    }
+    if bytes.len() > 5 * 1024 * 1024 {
+        return Err(AppError::BadRequest("file is too large (max 5MB)".to_string()));
+    }
+
+    // Validate image format
+    let (ext, content_type) = validate_avatar_image(&bytes)?;
+
+    // Delete old avatar if exists
+    let profile_query = format!("user_id=eq.{}&select=avatar_path", user.user_id);
+    let profiles: Vec<serde_json::Value> = state
+        .supabase
+        .select("user_profiles", &profile_query, &user.token)
+        .await?;
+
+    if let Some(profile) = profiles.into_iter().next() {
+        if let Some(old_path) = profile["avatar_path"].as_str() {
+            let _ = state
+                .supabase
+                .delete_object("user-photos", old_path, &user.token)
+                .await;
+        }
+    }
+
+    // Upload new avatar
+    let object_id = Uuid::new_v4().to_string();
+    let object_path = format!("{}/avatar_{}.{}", user.user_id, object_id, ext);
+
+    state
+        .supabase
+        .upload_object("user-photos", &object_path, bytes, &content_type, &user.token)
+        .await?;
+
+    // Update user_profiles with new avatar_path
+    let update_data = serde_json::json!({
+        "avatar_path": object_path,
+        "updated_at": chrono::Utc::now().to_rfc3339()
+    });
+
+    state
+        .supabase
+        .update(
+            "user_profiles",
+            &format!("user_id=eq.{}", user.user_id),
+            &update_data,
+            &user.token,
+        )
+        .await?;
+
+    // Get signed URL
+    let avatar_url = state
+        .supabase
+        .get_signed_url("user-photos", &object_path, 3600, &user.token)
+        .await?;
+
+    Ok(Json(UploadAvatarResponse { avatar_url }))
+}
+
+/// Validate avatar image format
+fn validate_avatar_image(bytes: &[u8]) -> AppResult<(&'static str, String)> {
+    if bytes.len() < 12 {
+        return Err(AppError::BadRequest("Invalid image file".to_string()));
+    }
+
+    // JPEG
+    if bytes.len() >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF {
+        return Ok(("jpg", "image/jpeg".to_string()));
+    }
+
+    // PNG
+    if bytes.len() >= 8
+        && bytes[0] == 0x89
+        && bytes[1] == 0x50
+        && bytes[2] == 0x4E
+        && bytes[3] == 0x47
+    {
+        return Ok(("png", "image/png".to_string()));
+    }
+
+    // WebP
+    if bytes.len() >= 12
+        && bytes[0] == 0x52
+        && bytes[1] == 0x49
+        && bytes[2] == 0x46
+        && bytes[3] == 0x46
+        && bytes[8] == 0x57
+        && bytes[9] == 0x45
+        && bytes[10] == 0x42
+        && bytes[11] == 0x50
+    {
+        return Ok(("webp", "image/webp".to_string()));
+    }
+
+    Err(AppError::BadRequest(
+        "Unsupported image format. Use JPEG, PNG, or WebP.".to_string(),
+    ))
 }

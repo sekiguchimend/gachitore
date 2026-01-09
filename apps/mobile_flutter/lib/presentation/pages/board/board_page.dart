@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
 import '../../../data/models/board_models.dart';
+import 'user_profile_page.dart';
 
 class BoardPage extends ConsumerStatefulWidget {
   const BoardPage({super.key});
@@ -16,9 +17,13 @@ class BoardPage extends ConsumerStatefulWidget {
 
 class _BoardPageState extends ConsumerState<BoardPage> {
   bool _loading = true;
+  bool _loadingMore = false;
+  bool _hasMore = true;
   String? _error;
   List<BoardPost> _posts = [];
   String? _currentUserId;
+
+  static const int _pageSize = 10;
 
   // Compose
   final _composeController = TextEditingController();
@@ -53,14 +58,16 @@ class _BoardPageState extends ConsumerState<BoardPage> {
     setState(() {
       _loading = true;
       _error = null;
+      _hasMore = true;
     });
     try {
       final boardService = ref.read(boardServiceProvider);
-      final res = await boardService.listPosts(limit: 100);
+      final res = await boardService.listPosts(limit: _pageSize, offset: 0);
       if (!mounted) return;
       setState(() {
         _posts = res.posts;
         _loading = false;
+        _hasMore = res.posts.length >= _pageSize;
       });
     } catch (e) {
       if (!mounted) return;
@@ -68,6 +75,30 @@ class _BoardPageState extends ConsumerState<BoardPage> {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore) return;
+    setState(() => _loadingMore = true);
+    try {
+      final boardService = ref.read(boardServiceProvider);
+      final res = await boardService.listPosts(limit: _pageSize, offset: _posts.length);
+      if (!mounted) return;
+      setState(() {
+        _posts = [..._posts, ...res.posts];
+        _loadingMore = false;
+        _hasMore = res.posts.length >= _pageSize;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingMore = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('読み込みに失敗しました: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
@@ -534,9 +565,17 @@ class _BoardPageState extends ConsumerState<BoardPage> {
       );
     }
 
+    // 投稿リスト + もっと見るボタン
+    final itemCount = _posts.length + (_hasMore ? 1 : 0);
+
     return SliverList(
       delegate: SliverChildBuilderDelegate(
         (context, index) {
+          // 最後のアイテムは「もっと見る」ボタン
+          if (index == _posts.length) {
+            return _buildLoadMoreButton();
+          }
+
           final post = _posts[index];
           final isOwn = post.userId == _currentUserId;
           return Column(
@@ -546,12 +585,45 @@ class _BoardPageState extends ConsumerState<BoardPage> {
                 isOwn: isOwn,
                 onDelete: isOwn ? () => _deletePost(post) : null,
                 onImageTap: post.imageUrl != null ? () => _showImageViewer(post.imageUrl!) : null,
+                onAvatarTap: () => _openUserProfile(post),
               ),
               Container(height: 1, color: AppColors.border),
             ],
           );
         },
-        childCount: _posts.length,
+        childCount: itemCount,
+      ),
+    );
+  }
+
+  Widget _buildLoadMoreButton() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Center(
+        child: _loadingMore
+            ? const CircularProgressIndicator(
+                color: AppColors.greenPrimary,
+                strokeWidth: 2,
+              )
+            : TextButton(
+                onPressed: _loadMore,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                  backgroundColor: AppColors.bgSub,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    side: BorderSide(color: AppColors.border),
+                  ),
+                ),
+                child: const Text(
+                  'もっと見る',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
       ),
     );
   }
@@ -569,6 +641,18 @@ class _BoardPageState extends ConsumerState<BoardPage> {
       ),
     );
   }
+
+  void _openUserProfile(BoardPost post) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => UserProfilePage(
+          userId: post.userId,
+          displayName: post.displayName,
+          avatarUrl: post.avatarUrl,
+        ),
+      ),
+    );
+  }
 }
 
 // Twitter-like post tile
@@ -577,12 +661,16 @@ class _PostTile extends StatelessWidget {
   final bool isOwn;
   final VoidCallback? onDelete;
   final VoidCallback? onImageTap;
+  final VoidCallback? onAvatarTap;
+
+  static const int _maxNameLength = 12;
 
   const _PostTile({
     required this.post,
     required this.isOwn,
     this.onDelete,
     this.onImageTap,
+    this.onAvatarTap,
   });
 
   String _formatDate(String isoDate) {
@@ -609,8 +697,16 @@ class _PostTile extends StatelessWidget {
     }
   }
 
+  String _truncateName(String name) {
+    if (name.length <= _maxNameLength) return name;
+    return '${name.substring(0, _maxNameLength)}...';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final displayName = _truncateName(post.displayName);
+    final initial = post.displayName.isNotEmpty ? post.displayName[0].toUpperCase() : '?';
+
     return InkWell(
       onLongPress: isOwn ? onDelete : null,
       child: Padding(
@@ -619,23 +715,9 @@ class _PostTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Avatar
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.greenPrimary.withOpacity(0.15),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  post.displayName.isNotEmpty ? post.displayName[0].toUpperCase() : '?',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.greenPrimary,
-                  ),
-                ),
-              ),
+            GestureDetector(
+              onTap: onAvatarTap,
+              child: _buildAvatar(initial),
             ),
             const SizedBox(width: 12),
             // Content
@@ -646,16 +728,12 @@ class _PostTile extends StatelessWidget {
                   // Header row
                   Row(
                     children: [
-                      Flexible(
-                        child: Text(
-                          post.displayName,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      Text(
+                        displayName,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -666,8 +744,8 @@ class _PostTile extends StatelessWidget {
                           color: AppColors.textTertiary,
                         ),
                       ),
-                      if (isOwn) ...[
-                        const Spacer(),
+                      const Spacer(),
+                      if (isOwn)
                         GestureDetector(
                           onTap: onDelete,
                           child: const Padding(
@@ -679,7 +757,6 @@ class _PostTile extends StatelessWidget {
                             ),
                           ),
                         ),
-                      ],
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -695,49 +772,105 @@ class _PostTile extends StatelessWidget {
                   // Image
                   if (post.imageUrl != null) ...[
                     const SizedBox(height: 12),
-                    GestureDetector(
+                    _PostImage(
+                      imageUrl: post.imageUrl!,
                       onTap: onImageTap,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.network(
-                          post.imageUrl!,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: 180,
-                          loadingBuilder: (_, child, progress) {
-                            if (progress == null) return child;
-                            return Container(
-                              height: 180,
-                              decoration: BoxDecoration(
-                                color: AppColors.bgSub,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Center(
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppColors.greenPrimary,
-                                ),
-                              ),
-                            );
-                          },
-                          errorBuilder: (_, __, ___) => Container(
-                            height: 180,
-                            decoration: BoxDecoration(
-                              color: AppColors.bgSub,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Center(
-                              child: Icon(Icons.broken_image, color: AppColors.textTertiary),
-                            ),
-                          ),
-                        ),
-                      ),
                     ),
                   ],
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatar(String initial) {
+    if (post.avatarUrl != null && post.avatarUrl!.isNotEmpty) {
+      return ClipOval(
+        child: Image.network(
+          post.avatarUrl!,
+          width: 40,
+          height: 40,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _buildInitialAvatar(initial),
+        ),
+      );
+    }
+    return _buildInitialAvatar(initial);
+  }
+
+  Widget _buildInitialAvatar(String initial) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: AppColors.greenPrimary.withOpacity(0.15),
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Text(
+          initial,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: AppColors.greenPrimary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Separate widget to prevent unnecessary rebuilds
+class _PostImage extends StatelessWidget {
+  final String imageUrl;
+  final VoidCallback? onTap;
+
+  const _PostImage({
+    required this.imageUrl,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.network(
+          imageUrl,
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: 180,
+          cacheWidth: 800,
+          loadingBuilder: (_, child, progress) {
+            if (progress == null) return child;
+            return Container(
+              height: 180,
+              decoration: BoxDecoration(
+                color: AppColors.bgSub,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Center(
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.greenPrimary,
+                ),
+              ),
+            );
+          },
+          errorBuilder: (_, __, ___) => Container(
+            height: 180,
+            decoration: BoxDecoration(
+              color: AppColors.bgSub,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Center(
+              child: Icon(Icons.broken_image, color: AppColors.textTertiary),
+            ),
+          ),
         ),
       ),
     );

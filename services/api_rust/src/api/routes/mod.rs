@@ -45,6 +45,7 @@ fn auth_routes() -> Router<AppState> {
 fn users_routes(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/profile", get(handlers::get_profile).patch(handlers::update_profile))
+        .route("/avatar", post(handlers::upload_avatar))
         .route("/onboarding/status", get(handlers::get_onboarding_status))
         .route("/onboarding/complete", post(handlers::complete_onboarding))
         .route(

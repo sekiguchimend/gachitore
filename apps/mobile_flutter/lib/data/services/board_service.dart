@@ -96,5 +96,16 @@ class BoardService {
       throw ApiException.fromDioError(e);
     }
   }
+
+  /// ユーザーのワークアウト履歴日付のみを取得（N+1回避のため必要なデータのみ）
+  Future<List<String>> getUserWorkoutDates(String userId) async {
+    try {
+      final res = await _apiClient.get('/users/$userId/workout-dates');
+      final dates = (res.data['dates'] as List?)?.map((d) => d.toString()).toList() ?? [];
+      return dates;
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
 }
 

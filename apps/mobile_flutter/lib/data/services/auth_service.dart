@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../core/api/api_client.dart';
 import '../../core/auth/secure_token_storage.dart';
 
@@ -218,6 +219,31 @@ class AuthService {
 
     try {
       await _apiClient.patch('/users/profile', data: data);
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
+  // Upload avatar image
+  Future<String> uploadAvatar(XFile file) async {
+    try {
+      final bytes = await file.readAsBytes();
+      final filename = file.name.isNotEmpty ? file.name : 'avatar.jpg';
+
+      final form = FormData.fromMap({
+        'file': MultipartFile.fromBytes(
+          bytes,
+          filename: filename,
+        ),
+      });
+
+      // Note: Do NOT set Content-Type manually - Dio will set it with the correct boundary
+      final res = await _apiClient.post(
+        '/users/avatar',
+        data: form,
+      );
+
+      return res.data['avatar_url'] as String;
     } on DioException catch (e) {
       throw ApiException.fromDioError(e);
     }

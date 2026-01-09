@@ -10,6 +10,7 @@ class UserProfile {
   final int targetProteinG;
   final int targetFatG;
   final int targetCarbsG;
+  final String? avatarUrl;
 
   UserProfile({
     required this.name,
@@ -23,6 +24,7 @@ class UserProfile {
     required this.targetProteinG,
     required this.targetFatG,
     required this.targetCarbsG,
+    this.avatarUrl,
   });
 
   UserProfile copyWith({
@@ -37,6 +39,7 @@ class UserProfile {
     int? targetProteinG,
     int? targetFatG,
     int? targetCarbsG,
+    String? avatarUrl,
   }) {
     return UserProfile(
       name: name ?? this.name,
@@ -50,6 +53,7 @@ class UserProfile {
       targetProteinG: targetProteinG ?? this.targetProteinG,
       targetFatG: targetFatG ?? this.targetFatG,
       targetCarbsG: targetCarbsG ?? this.targetCarbsG,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
     );
   }
 
@@ -94,6 +98,7 @@ class UserProfile {
       targetProteinG: 150,
       targetFatG: 80,
       targetCarbsG: 250,
+      avatarUrl: null,
     );
   }
 
@@ -128,6 +133,7 @@ class UserProfile {
       targetCarbsG: (json['target_carbs_g'] is num)
           ? (json['target_carbs_g'] as num).round()
           : 250,
+      avatarUrl: json['avatar_url']?.toString(),
     );
   }
 }

@@ -27,18 +27,80 @@ extension _SettingsPageUi on _SettingsPageState {
       ),
       child: Row(
         children: [
-          // Avatar
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              color: AppColors.greenPrimary.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Icon(
-              Icons.person,
-              color: AppColors.greenPrimary,
-              size: 32,
+          // Avatar (タップで変更可能)
+          GestureDetector(
+            onTap: _isUploadingAvatar ? null : _showAvatarPicker,
+            child: Stack(
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: AppColors.greenPrimary.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: user.avatarUrl != null
+                        ? Image.network(
+                            user.avatarUrl!,
+                            fit: BoxFit.cover,
+                            width: 64,
+                            height: 64,
+                            errorBuilder: (_, __, ___) => const Icon(
+                              Icons.person,
+                              color: AppColors.greenPrimary,
+                              size: 32,
+                            ),
+                            loadingBuilder: (_, child, progress) {
+                              if (progress == null) return child;
+                              return const Center(
+                                child: SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.greenPrimary,
+                                  ),
+                                ),
+                              );
+                            },
+                          )
+                        : const Icon(
+                            Icons.person,
+                            color: AppColors.greenPrimary,
+                            size: 32,
+                          ),
+                  ),
+                ),
+                // カメラアイコンオーバーレイ
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: AppColors.greenPrimary,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.bgCard, width: 2),
+                    ),
+                    child: _isUploadingAvatar
+                        ? const Padding(
+                            padding: EdgeInsets.all(4),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.textPrimary,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.camera_alt,
+                            color: AppColors.textPrimary,
+                            size: 12,
+                          ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(width: 16),

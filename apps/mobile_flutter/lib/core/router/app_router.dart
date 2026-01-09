@@ -284,7 +284,7 @@ class _MainShellState extends State<MainShell> {
               label,
               style: TextStyle(
                 fontSize: 10,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
                 color: isSelected ? AppColors.textPrimary : AppColors.textTertiary,
               ),
             ),
