@@ -58,7 +58,8 @@ regex = "1"
 moka = { version = "0.12", features = ["future"] }
 
 # Image processing (for thumbnail generation)
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+# Note: 0.25.5 is pinned to avoid edition2024 compatibility issues with Rust 1.83
+image = { version = "=0.25.5", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
