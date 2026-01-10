@@ -200,43 +200,47 @@ class LikeResponse {
   }
 }
 
-/// ワークアウト日付とボリューム
-class WorkoutDateVolume {
+/// ワークアウト日付とスコア
+class WorkoutDateScore {
   final String date;
   final double volume;
+  final double score;  // volume / body_weight
 
-  WorkoutDateVolume({required this.date, required this.volume});
+  WorkoutDateScore({required this.date, required this.volume, required this.score});
 
-  factory WorkoutDateVolume.fromJson(Map<String, dynamic> json) {
-    return WorkoutDateVolume(
+  factory WorkoutDateScore.fromJson(Map<String, dynamic> json) {
+    return WorkoutDateScore(
       date: json['date']?.toString() ?? '',
       volume: (json['volume'] as num?)?.toDouble() ?? 0.0,
+      score: (json['score'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }
 
-/// ワークアウト日付一覧（ボリューム付き）
+/// ワークアウト日付一覧（スコア付き）
 class WorkoutDatesWithVolume {
   final List<String> dates;
-  final List<WorkoutDateVolume> workouts;
+  final List<WorkoutDateScore> workouts;
+  final double? bodyWeight;
 
-  WorkoutDatesWithVolume({required this.dates, required this.workouts});
+  WorkoutDatesWithVolume({required this.dates, required this.workouts, this.bodyWeight});
 
   factory WorkoutDatesWithVolume.fromJson(Map<String, dynamic> json) {
     final datesList = (json['dates'] as List?)?.map((d) => d.toString()).toList() ?? [];
     final workoutsList = (json['workouts'] as List?)
             ?.whereType<Map<String, dynamic>>()
-            .map(WorkoutDateVolume.fromJson)
+            .map(WorkoutDateScore.fromJson)
             .toList() ??
         [];
-    return WorkoutDatesWithVolume(dates: datesList, workouts: workoutsList);
+    final bodyWeight = (json['body_weight'] as num?)?.toDouble();
+    return WorkoutDatesWithVolume(dates: datesList, workouts: workoutsList, bodyWeight: bodyWeight);
   }
 
-  /// 日付からボリュームを取得するマップを生成
-  Map<String, double> toVolumeMap() {
+  /// 日付からスコアを取得するマップを生成
+  Map<String, double> toScoreMap() {
     final map = <String, double>{};
     for (final w in workouts) {
-      map[w.date] = w.volume;
+      map[w.date] = w.score;
     }
     return map;
   }

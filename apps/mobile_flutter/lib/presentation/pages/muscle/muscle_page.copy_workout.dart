@@ -181,7 +181,7 @@ extension _MusclePageCopyWorkout on _MusclePageState {
                                   height: 40,
                                   decoration: BoxDecoration(
                                     color: AppColors.greenPrimary
-                                        .withOpacity(0.15),
+                                        .withValues(alpha:0.15),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: const Icon(
@@ -387,7 +387,7 @@ extension _MusclePageCopyWorkout on _MusclePageState {
                           width: 40,
                           height: 40,
                           decoration: BoxDecoration(
-                            color: AppColors.greenPrimary.withOpacity(0.15),
+                            color: AppColors.greenPrimary.withValues(alpha:0.15),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Icon(

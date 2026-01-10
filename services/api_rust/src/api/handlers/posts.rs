@@ -63,6 +63,8 @@ pub async fn list_posts(
     Extension(user): Extension<AuthUser>,
     Query(q): Query<ListPostsQuery>,
 ) -> AppResult<Json<ListPostsResponse>> {
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     let limit = q.limit.unwrap_or(50).clamp(1, 100);
     let offset = q.offset.unwrap_or(0).max(0);
 
@@ -176,6 +178,8 @@ pub async fn create_post(
     Extension(user): Extension<AuthUser>,
     mut multipart: Multipart,
 ) -> AppResult<Json<CreatePostResponse>> {
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     let mut content: Option<String> = None;
     let mut image_bytes: Option<Vec<u8>> = None;
     let mut image_content_type: Option<String> = None;
@@ -345,6 +349,10 @@ pub async fn delete_post(
     Extension(user): Extension<AuthUser>,
     Path(post_id): Path<String>,
 ) -> AppResult<Json<DeletePostResponse>> {
+    // Validate IDs
+    crate::api::validation::validate_uuid(&post_id)?;
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     // Fetch the post to get image_path
     let query = format!("id=eq.{}&user_id=eq.{}&select=*", post_id, user.user_id);
     let posts: Vec<Post> = state
@@ -502,6 +510,11 @@ async fn get_post_like_counts(
         return counts;
     }
 
+    // Validate all post IDs before building query
+    if crate::api::validation::validate_uuids(post_ids).is_err() {
+        return counts; // Return empty on invalid IDs (defensive)
+    }
+
     // Query likes grouped by post_id
     let ids_str = post_ids.iter().map(|id| format!("\"{}\"", id)).collect::<Vec<_>>().join(",");
     let query = format!("post_id=in.({})&select=post_id", ids_str);
@@ -526,6 +539,10 @@ async fn get_post_comment_counts(
         return counts;
     }
 
+    if crate::api::validation::validate_uuids(post_ids).is_err() {
+        return counts;
+    }
+
     let ids_str = post_ids.iter().map(|id| format!("\"{}\"", id)).collect::<Vec<_>>().join(",");
     let query = format!("post_id=in.({})&select=post_id", ids_str);
 
@@ -547,6 +564,10 @@ async fn get_user_post_likes(
 ) -> HashSet<String> {
     let mut liked = HashSet::new();
     if post_ids.is_empty() {
+        return liked;
+    }
+
+    if crate::api::validation::validate_uuids(post_ids).is_err() || crate::api::validation::validate_uuid(user_id).is_err() {
         return liked;
     }
 
@@ -587,6 +608,9 @@ pub async fn toggle_post_like(
     Extension(user): Extension<AuthUser>,
     Path(post_id): Path<String>,
 ) -> AppResult<Json<LikeResponse>> {
+    crate::api::validation::validate_uuid(&post_id)?;
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     // Check if already liked
     let check_query = format!("post_id=eq.{}&user_id=eq.{}&select=id", post_id, user.user_id);
     let existing: Vec<IdOnly> = state
@@ -672,6 +696,9 @@ pub async fn list_comments(
     Path(post_id): Path<String>,
     Query(q): Query<ListCommentsQuery>,
 ) -> AppResult<Json<ListCommentsResponse>> {
+    crate::api::validation::validate_uuid(&post_id)?;
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     let limit = q.limit.unwrap_or(50).clamp(1, 100);
     let offset = q.offset.unwrap_or(0).max(0);
 
@@ -774,6 +801,12 @@ pub async fn create_comment(
     Path(post_id): Path<String>,
     Json(req): Json<CreateCommentRequest>,
 ) -> AppResult<Json<CreateCommentResponse>> {
+    crate::api::validation::validate_uuid(&post_id)?;
+    crate::api::validation::validate_uuid(&user.user_id)?;
+    if let Some(ref reply_to) = req.reply_to_user_id {
+        crate::api::validation::validate_uuid(reply_to)?;
+    }
+
     // Validate content
     if req.content.trim().is_empty() {
         return Err(AppError::BadRequest("content cannot be empty".to_string()));
@@ -904,6 +937,9 @@ pub async fn delete_comment(
     Extension(user): Extension<AuthUser>,
     Path(comment_id): Path<String>,
 ) -> AppResult<Json<DeleteCommentResponse>> {
+    crate::api::validation::validate_uuid(&comment_id)?;
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     // Delete the comment (RLS ensures only owner can delete)
     let delete_query = format!("id=eq.{}&user_id=eq.{}", comment_id, user.user_id);
     state.supabase.delete("post_comments", &delete_query, &user.token).await?;
@@ -920,6 +956,9 @@ pub async fn toggle_comment_like(
     Extension(user): Extension<AuthUser>,
     Path(comment_id): Path<String>,
 ) -> AppResult<Json<LikeResponse>> {
+    crate::api::validation::validate_uuid(&comment_id)?;
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     // Check if already liked
     let check_query = format!("comment_id=eq.{}&user_id=eq.{}&select=id", comment_id, user.user_id);
     let existing: Vec<IdOnly> = state
@@ -968,6 +1007,10 @@ async fn get_comment_like_counts(
         return counts;
     }
 
+    if crate::api::validation::validate_uuids(comment_ids).is_err() {
+        return counts;
+    }
+
     let ids_str = comment_ids.iter().map(|id| format!("\"{}\"", id)).collect::<Vec<_>>().join(",");
     let query = format!("comment_id=in.({})&select=comment_id", ids_str);
     
@@ -989,6 +1032,10 @@ async fn get_user_comment_likes(
 ) -> HashSet<String> {
     let mut liked = HashSet::new();
     if comment_ids.is_empty() {
+        return liked;
+    }
+
+    if crate::api::validation::validate_uuids(comment_ids).is_err() || crate::api::validation::validate_uuid(user_id).is_err() {
         return liked;
     }
 

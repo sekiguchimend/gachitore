@@ -242,7 +242,7 @@ extension _MusclePageHeader on _MusclePageState {
                       width: 44,
                       height: 44,
                       decoration: BoxDecoration(
-                        color: AppColors.greenPrimary.withOpacity(0.15),
+                        color: AppColors.greenPrimary.withValues(alpha:0.15),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Icon(

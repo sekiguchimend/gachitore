@@ -33,6 +33,7 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
   final _commentController = TextEditingController();
   final _commentFocusNode = FocusNode();
   bool _posting = false;
+  bool _hasCommentText = false;
 
   // 返信先の情報
   String? _replyToUserId;
@@ -46,10 +47,19 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
     _post = widget.post;
     _loadCurrentUser();
     _loadComments();
+    _commentController.addListener(_onCommentTextChanged);
+  }
+
+  void _onCommentTextChanged() {
+    final hasText = _commentController.text.trim().isNotEmpty;
+    if (hasText != _hasCommentText) {
+      setState(() => _hasCommentText = hasText);
+    }
   }
 
   @override
   void dispose() {
+    _commentController.removeListener(_onCommentTextChanged);
     _commentController.dispose();
     _commentFocusNode.dispose();
     super.dispose();
@@ -549,7 +559,7 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
       width: 44,
       height: 44,
       decoration: BoxDecoration(
-        color: AppColors.greenPrimary.withOpacity(0.15),
+        color: AppColors.greenPrimary.withValues(alpha:0.15),
         shape: BoxShape.circle,
       ),
       child: Center(
@@ -696,15 +706,17 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
   }
 
   Widget _buildCommentInput() {
-    final hasText = _commentController.text.trim().isNotEmpty;
-    final canPost = hasText && !_posting;
+    final canPost = _hasCommentText && !_posting;
+
+    final mediaQuery = MediaQuery.of(context);
+    final bottomPadding = mediaQuery.viewInsets.bottom > 0 ? 12.0 : mediaQuery.padding.bottom + 12;
 
     return Container(
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
         top: 12,
-        bottom: MediaQuery.of(context).viewInsets.bottom > 0 ? 12 : MediaQuery.of(context).padding.bottom + 12,
+        bottom: bottomPadding,
       ),
       decoration: BoxDecoration(
         color: AppColors.bgCard,
@@ -745,7 +757,6 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
                   maxLines: null,
                   minLines: 1,
                   maxLength: 500,
-                  onChanged: (_) => setState(() {}),
                   style: const TextStyle(
                     fontSize: 15,
                     color: AppColors.textPrimary,
@@ -892,7 +903,7 @@ class _CommentTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.border.withOpacity(0.5))),
+          border: Border(bottom: BorderSide(color: AppColors.border.withValues(alpha:0.5))),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1085,7 +1096,7 @@ class _CommentTile extends StatelessWidget {
       width: 36,
       height: 36,
       decoration: BoxDecoration(
-        color: AppColors.greenPrimary.withOpacity(0.15),
+        color: AppColors.greenPrimary.withValues(alpha:0.15),
         shape: BoxShape.circle,
       ),
       child: Center(

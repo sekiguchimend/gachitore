@@ -45,26 +45,29 @@ extension _MusclePageSheetsDetail on _MusclePageState {
               ),
             ),
             const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildDetailStat('e1RM', '${exercise.e1rm}kg'),
-                ),
-                Expanded(
-                  child: _buildDetailStat(
-                    '前回',
-                    '${exercise.lastWeight}kg×${exercise.lastReps}',
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: _buildDetailStat('e1RM', '${exercise.e1rm}kg'),
                   ),
-                ),
-                Expanded(
-                  child: _buildDetailStat(
-                    'トレンド',
-                    exercise.trend >= 0
-                        ? '+${exercise.trend}kg'
-                        : '${exercise.trend}kg',
+                  Expanded(
+                    child: _buildDetailStat(
+                      '前回',
+                      '${exercise.lastWeight}kg×${exercise.lastReps}',
+                    ),
                   ),
-                ),
-              ],
+                  Expanded(
+                    child: _buildDetailStat(
+                      'トレンド',
+                      exercise.trend >= 0
+                          ? '+${exercise.trend}kg'
+                          : '${exercise.trend}kg',
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 24),
             Row(
@@ -311,33 +314,33 @@ extension _MusclePageSheetsDetail on _MusclePageState {
   }
 
   Widget _buildDetailStat(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textTertiary,
-          ),
-        ),
-        const SizedBox(height: 4),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 100),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
+    return SizedBox(
+      width: double.infinity,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textTertiary,
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: 4),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -477,9 +480,9 @@ extension _MusclePageSheetsDetail on _MusclePageState {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.error.withOpacity(0.12),
+                      color: AppColors.error.withValues(alpha:0.12),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.error.withOpacity(0.2)),
+                      border: Border.all(color: AppColors.error.withValues(alpha:0.2)),
                     ),
                     child: Text(
                       errorMessage!,

@@ -49,7 +49,7 @@ class SetupConstraintsStep extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? AppColors.warning.withOpacity(0.15)
+                        ? AppColors.warning.withValues(alpha:0.15)
                         : AppColors.bgCard,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
@@ -72,7 +72,7 @@ class SetupConstraintsStep extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: AppColors.info.withOpacity(0.1),
+              color: AppColors.info.withValues(alpha:0.1),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(

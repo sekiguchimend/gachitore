@@ -49,13 +49,20 @@ extension _FoodPageMeals on _FoodPageState {
             ),
           ),
           const SizedBox(height: 12),
-          ..._meals.map((meal) => _buildMealCard(meal)),
+          Builder(
+            builder: (context) {
+              final expansionTheme = Theme.of(context).copyWith(dividerColor: Colors.transparent);
+              return Column(
+                children: _meals.map((meal) => _buildMealCard(meal, expansionTheme)).toList(),
+              );
+            },
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildMealCard(MealEntry meal) {
+  Widget _buildMealCard(MealEntry meal, ThemeData expansionTheme) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -63,7 +70,7 @@ extension _FoodPageMeals on _FoodPageState {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        data: expansionTheme,
         child: ExpansionTile(
           tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -71,7 +78,7 @@ extension _FoodPageMeals on _FoodPageState {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: _getMealColor(meal.type).withOpacity(0.15),
+              color: _getMealColor(meal.type).withValues(alpha:0.15),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(

@@ -13,10 +13,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
-use axum::http::{header, Method};
+use axum::http::{header, HeaderValue, Method};
 use tower_http::cors::CorsLayer;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::trace::TraceLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tower_governor::GovernorLayer;
 use tower_governor::governor::GovernorConfigBuilder;
@@ -137,7 +138,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Rate limiting enabled: 100 req/s per IP, burst: 200");
 
-    // Build router
+    // Build router with security headers
     let app = Router::new()
         .nest("/v1", api::routes::create_routes(state.clone()))
         .layer(rate_limit_layer)
@@ -145,7 +146,26 @@ async fn main() -> anyhow::Result<()> {
         .layer(CatchPanicLayer::new())
         .layer(TraceLayer::new_for_http())
         .layer(cors)
+        // Security headers
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::HeaderName::from_static("x-xss-protection"),
+            HeaderValue::from_static("1; mode=block"),
+        ))
         .with_state(state);
+
+    tracing::info!("Security headers enabled: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, X-XSS-Protection");
 
     // Start server
     tracing::info!("Listening on {}", addr);

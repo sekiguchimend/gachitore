@@ -53,12 +53,6 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
       ]);
       if (!mounted) return;
       final workoutData = results[0] as WorkoutDatesWithVolume;
-      // デバッグログ
-      debugPrint('=== WorkoutData Debug ===');
-      debugPrint('dates: ${workoutData.dates}');
-      debugPrint('workouts: ${workoutData.workouts.map((w) => "${w.date}: ${w.volume}").toList()}');
-      debugPrint('volumeMap: ${workoutData.toVolumeMap()}');
-      debugPrint('========================');
       setState(() {
         _workoutData = workoutData;
         _todayMeals = results[1] as List<MealEntry>;
@@ -217,7 +211,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
       width: 100,
       height: 100,
       decoration: BoxDecoration(
-        color: AppColors.greenPrimary.withOpacity(0.15),
+        color: AppColors.greenPrimary.withValues(alpha: 0.15),
         shape: BoxShape.circle,
       ),
       child: Center(
@@ -301,13 +295,20 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
               ),
             )
           else
-            ..._todayMeals.map((meal) => _buildMealCard(meal)),
+            Builder(
+              builder: (context) {
+                final expansionTheme = Theme.of(context).copyWith(dividerColor: Colors.transparent);
+                return Column(
+                  children: _todayMeals.map((meal) => _buildMealCard(meal, expansionTheme)).toList(),
+                );
+              },
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildMealCard(MealEntry meal) {
+  Widget _buildMealCard(MealEntry meal, ThemeData expansionTheme) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -315,7 +316,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        data: expansionTheme,
         child: ExpansionTile(
           tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -323,7 +324,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: _getMealColor(meal.type).withOpacity(0.15),
+              color: _getMealColor(meal.type).withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
@@ -423,27 +424,25 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
 class _TrainingGrass extends StatelessWidget {
   final WorkoutDatesWithVolume workoutData;
 
+  // 定数をstaticに
+  static const int _weeksToShow = 16;
+  static const int _daysInWeek = 7;
+
   const _TrainingGrass({required this.workoutData});
+
+  // 計算結果をキャッシュするためのgetter
+  Map<String, double> get _scoreMap => workoutData.toScoreMap();
 
   @override
   Widget build(BuildContext context) {
     final today = DateTime.now();
     final todayDate = DateTime(today.year, today.month, today.day);
-    final volumeMap = workoutData.toVolumeMap();
-
-    // 過去16週間を表示（自分の履歴ページと同じ）
-    const weeksToShow = 16;
-    const daysInWeek = 7;
+    final scoreMap = _scoreMap;
 
     // 今週の日曜日を取得（週の開始）
     final currentWeekStart = todayDate.subtract(Duration(days: todayDate.weekday % 7));
     // 16週間前の日曜日
-    final startDate = currentWeekStart.subtract(const Duration(days: (weeksToShow - 1) * 7));
-
-    // 最大ボリュームを計算（色の濃さの計算用）
-    final maxVolume = volumeMap.values.isEmpty
-        ? 1.0
-        : volumeMap.values.reduce((a, b) => a > b ? a : b);
+    final startDate = currentWeekStart.subtract(const Duration(days: (_weeksToShow - 1) * 7));
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -484,34 +483,34 @@ class _TrainingGrass extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           // 月ラベル
-          _buildMonthLabels(startDate, weeksToShow),
+          _buildMonthLabels(startDate),
           const SizedBox(height: 4),
           // 草グラフ
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 曜日ラベル
-              _buildWeekdayLabels(),
+              const _WeekdayLabels(),
               const SizedBox(width: 4),
               // グラフ本体
               Expanded(
-                child: _buildGrassGrid(startDate, weeksToShow, daysInWeek, todayDate, volumeMap, maxVolume),
+                child: _buildGrassGrid(startDate, todayDate, scoreMap),
               ),
             ],
           ),
           const SizedBox(height: 12),
           // 凡例
-          _buildLegend(),
+          const _GrassLegend(),
         ],
       ),
     );
   }
 
-  Widget _buildMonthLabels(DateTime startDate, int weeksToShow) {
+  Widget _buildMonthLabels(DateTime startDate) {
     int? lastMonth;
     final months = <Widget>[];
 
-    for (int week = 0; week < weeksToShow; week++) {
+    for (int week = 0; week < _weeksToShow; week++) {
       final weekStart = startDate.add(Duration(days: week * 7));
       if (weekStart.month != lastMonth) {
         months.add(
@@ -538,10 +537,65 @@ class _TrainingGrass extends StatelessWidget {
     );
   }
 
-  Widget _buildWeekdayLabels() {
-    const labels = ['', '月', '', '水', '', '金', ''];
+  Widget _buildGrassGrid(
+    DateTime startDate,
+    DateTime today,
+    Map<String, double> scoreMap,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cellSize = (constraints.maxWidth / _weeksToShow) - 2;
+        final actualCellSize = cellSize.clamp(8.0, 13.0);
+
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(_weeksToShow, (weekIndex) {
+            return Column(
+              children: List.generate(_daysInWeek, (dayIndex) {
+                final date = startDate.add(Duration(days: weekIndex * 7 + dayIndex));
+                final dateStr = DateFormat('yyyy-MM-dd').format(date);
+                final score = scoreMap[dateStr] ?? 0;
+                final isFuture = date.isAfter(today);
+
+                return _GrassCell(
+                  size: actualCellSize,
+                  color: isFuture ? null : _getColorByScore(score),
+                  isFuture: isFuture,
+                );
+              }),
+            );
+          }),
+        );
+      },
+    );
+  }
+
+  /// スコア（総ボリューム/体重）に基づいて色を取得
+  static Color _getColorByScore(double score) {
+    if (score <= 0) {
+      return AppColors.bgSub;
+    } else if (score < 80) {
+      return const Color(0xFF0E4429);
+    } else if (score < 120) {
+      return const Color(0xFF006D32);
+    } else if (score < 160) {
+      return const Color(0xFF26A641);
+    } else {
+      return const Color(0xFF39D353);
+    }
+  }
+}
+
+/// 曜日ラベル（const化）
+class _WeekdayLabels extends StatelessWidget {
+  const _WeekdayLabels();
+
+  static const _labels = ['', '月', '', '水', '', '金', ''];
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
-      children: labels.map((label) {
+      children: _labels.map((label) {
         return SizedBox(
           height: 14,
           child: Text(
@@ -555,72 +609,51 @@ class _TrainingGrass extends StatelessWidget {
       }).toList(),
     );
   }
+}
 
-  Widget _buildGrassGrid(
-    DateTime startDate,
-    int weeksToShow,
-    int daysInWeek,
-    DateTime today,
-    Map<String, double> volumeMap,
-    double maxVolume,
-  ) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cellSize = (constraints.maxWidth / weeksToShow) - 2;
-        final actualCellSize = cellSize.clamp(8.0, 13.0);
+/// 草セル（個別ウィジェット化）
+class _GrassCell extends StatelessWidget {
+  final double size;
+  final Color? color;
+  final bool isFuture;
 
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: List.generate(weeksToShow, (weekIndex) {
-            return Column(
-              children: List.generate(daysInWeek, (dayIndex) {
-                final date = startDate.add(Duration(days: weekIndex * 7 + dayIndex));
-                final dateStr = DateFormat('yyyy-MM-dd').format(date);
-                final volume = volumeMap[dateStr] ?? 0;
-                final isFuture = date.isAfter(today);
+  const _GrassCell({
+    required this.size,
+    required this.color,
+    required this.isFuture,
+  });
 
-                return Container(
-                  width: actualCellSize,
-                  height: actualCellSize,
-                  margin: const EdgeInsets.all(1),
-                  decoration: BoxDecoration(
-                    color: isFuture
-                        ? Colors.transparent
-                        : _getContributionColor(volume, maxVolume),
-                    borderRadius: BorderRadius.circular(2),
-                    border: isFuture
-                        ? Border.all(color: AppColors.border.withOpacity(0.3), width: 0.5)
-                        : null,
-                  ),
-                );
-              }),
-            );
-          }),
-        );
-      },
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      margin: const EdgeInsets.all(1),
+      decoration: BoxDecoration(
+        color: isFuture ? Colors.transparent : color,
+        borderRadius: BorderRadius.circular(2),
+        border: isFuture
+            ? Border.all(color: AppColors.border.withValues(alpha: 0.3), width: 0.5)
+            : null,
+      ),
     );
   }
+}
 
-  /// ボリュームに基づいて色を取得（GitHub風4段階）
-  Color _getContributionColor(double volume, double maxVolume) {
-    if (volume <= 0) {
-      return AppColors.bgSub;
-    }
+/// 凡例（const化）
+class _GrassLegend extends StatelessWidget {
+  const _GrassLegend();
 
-    final ratio = volume / maxVolume;
+  static const _colors = [
+    AppColors.bgSub,
+    Color(0xFF0E4429),
+    Color(0xFF006D32),
+    Color(0xFF26A641),
+    Color(0xFF39D353),
+  ];
 
-    if (ratio < 0.25) {
-      return const Color(0xFF0E4429); // 薄い緑
-    } else if (ratio < 0.5) {
-      return const Color(0xFF006D32); // 中間の緑
-    } else if (ratio < 0.75) {
-      return const Color(0xFF26A641); // 濃い緑
-    } else {
-      return const Color(0xFF39D353); // 最も濃い緑
-    }
-  }
-
-  Widget _buildLegend() {
+  @override
+  Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
@@ -633,11 +666,15 @@ class _TrainingGrass extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 4),
-        _buildLegendCell(AppColors.bgSub),
-        _buildLegendCell(const Color(0xFF0E4429)),
-        _buildLegendCell(const Color(0xFF006D32)),
-        _buildLegendCell(const Color(0xFF26A641)),
-        _buildLegendCell(const Color(0xFF39D353)),
+        ..._colors.map((color) => Container(
+          width: 10,
+          height: 10,
+          margin: const EdgeInsets.symmetric(horizontal: 1),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        )),
         const SizedBox(width: 4),
         const Text(
           'More',
@@ -648,18 +685,6 @@ class _TrainingGrass extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildLegendCell(Color color) {
-    return Container(
-      width: 10,
-      height: 10,
-      margin: const EdgeInsets.symmetric(horizontal: 1),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(2),
-      ),
     );
   }
 }

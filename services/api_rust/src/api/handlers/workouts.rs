@@ -468,6 +468,9 @@ pub async fn get_workout_detail(
     Extension(user): Extension<AuthUser>,
     Path(workout_id): Path<String>,
 ) -> AppResult<Json<WorkoutDetail>> {
+    crate::api::validation::validate_uuid(&workout_id)?;
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     let query = format!(
         "id=eq.{}&user_id=eq.{}&select=id,date,start_time,end_time,perceived_fatigue,note,workout_exercises(id,exercise_id,custom_exercise_name,muscle_tag,exercises(name),workout_sets(set_index,weight_kg,reps,rpe,is_warmup,is_dropset))",
         workout_id, user.user_id

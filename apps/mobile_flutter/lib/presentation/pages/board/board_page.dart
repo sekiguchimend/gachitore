@@ -6,7 +6,6 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
 import '../../../data/models/board_models.dart';
-import '../../../data/models/meal_models.dart';
 import 'user_profile_page.dart';
 import 'post_detail_page.dart';
 
@@ -50,16 +49,31 @@ class _BoardPageState extends ConsumerState<BoardPage> {
   bool _posting = false;
   PostAttachment? _attachment;
 
+  // 遅延初期化
+  ImagePicker? _imagePicker;
+  ImagePicker get _picker => _imagePicker ??= ImagePicker();
+
+  // 投稿ボタンの状態管理用
+  bool _hasText = false;
+
   @override
   void initState() {
     super.initState();
     _loadCurrentUser();
     _load();
-    _composeController.addListener(() => setState(() {}));
+    _composeController.addListener(_onTextChanged);
+  }
+
+  void _onTextChanged() {
+    final hasText = _composeController.text.trim().isNotEmpty;
+    if (hasText != _hasText) {
+      setState(() => _hasText = hasText);
+    }
   }
 
   @override
   void dispose() {
+    _composeController.removeListener(_onTextChanged);
     _composeController.dispose();
     _composeFocusNode.dispose();
     super.dispose();
@@ -122,8 +136,7 @@ class _BoardPageState extends ConsumerState<BoardPage> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    final picker = ImagePicker();
-    final file = await picker.pickImage(source: source, imageQuality: 85);
+    final file = await _picker.pickImage(source: source, imageQuality: 85);
     if (file != null && mounted) {
       setState(() => _selectedImage = file);
     }
@@ -483,8 +496,7 @@ class _BoardPageState extends ConsumerState<BoardPage> {
   }
 
   Widget _buildComposeBox() {
-    final hasText = _composeController.text.trim().isNotEmpty;
-    final canPost = hasText && !_posting;
+    final canPost = _hasText && !_posting;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -499,7 +511,7 @@ class _BoardPageState extends ConsumerState<BoardPage> {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: AppColors.greenPrimary.withOpacity(0.15),
+              color: AppColors.greenPrimary.withValues(alpha:0.15),
               shape: BoxShape.circle,
             ),
             child: const Icon(
@@ -663,9 +675,9 @@ class _BoardPageState extends ConsumerState<BoardPage> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha:0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha:0.3)),
       ),
       child: Row(
         children: [
@@ -698,7 +710,7 @@ class _BoardPageState extends ConsumerState<BoardPage> {
             child: Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: AppColors.textTertiary.withOpacity(0.2),
+                color: AppColors.textTertiary.withValues(alpha:0.2),
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.close, color: AppColors.textSecondary, size: 14),
@@ -1084,7 +1096,7 @@ class _PostTile extends StatelessWidget {
       width: 40,
       height: 40,
       decoration: BoxDecoration(
-        color: AppColors.greenPrimary.withOpacity(0.15),
+        color: AppColors.greenPrimary.withValues(alpha:0.15),
         shape: BoxShape.circle,
       ),
       child: Center(

@@ -264,7 +264,7 @@ extension _FoodPageRecentItemsSheet on _FoodPageState {
                                               height: 40,
                                               decoration: BoxDecoration(
                                                 color: AppColors.greenPrimary
-                                                    .withOpacity(0.15),
+                                                    .withValues(alpha:0.15),
                                                 borderRadius:
                                                     BorderRadius.circular(10),
                                               ),

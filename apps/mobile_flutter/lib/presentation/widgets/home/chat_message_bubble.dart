@@ -73,7 +73,7 @@ class ChatMessageBubble extends StatelessWidget {
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
                       color: message.isUser
-                          ? AppColors.textPrimary.withOpacity(0.7)
+                          ? AppColors.textPrimary.withValues(alpha:0.7)
                           : AppColors.textTertiary,
                     ),
                   ),

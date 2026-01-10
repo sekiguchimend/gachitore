@@ -7,9 +7,11 @@ import '../models/meal_models.dart';
 /// 掲示板サービス
 class BoardService {
   final ApiClient _apiClient;
-  final ImagePicker _picker = ImagePicker();
+  ImagePicker? _picker;
 
   BoardService({required ApiClient apiClient}) : _apiClient = apiClient;
+
+  ImagePicker get _imagePicker => _picker ??= ImagePicker();
 
   /// 投稿一覧を取得（新しい順）
   Future<ListPostsResponse> listPosts({int limit = 50, int offset = 0}) async {
@@ -75,7 +77,7 @@ class BoardService {
 
   /// ギャラリーから画像を選択
   Future<XFile?> pickImageFromGallery() async {
-    return await _picker.pickImage(
+    return await _imagePicker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 85,
     );
@@ -83,7 +85,7 @@ class BoardService {
 
   /// カメラで撮影
   Future<XFile?> takePhoto() async {
-    return await _picker.pickImage(
+    return await _imagePicker.pickImage(
       source: ImageSource.camera,
       imageQuality: 85,
     );

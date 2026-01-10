@@ -64,10 +64,31 @@ extension _MusclePageHistory on _MusclePageState {
     );
   }
 
+  // 定数
+  static const int _weeksToShow = 16;
+  static const int _daysInWeek = 7;
+
+  /// スコアマップを計算（ボリューム/体重）
+  Map<DateTime, double> _computeScoreMap() {
+    final scoreMap = <DateTime, double>{};
+    for (final workout in _recentWorkouts) {
+      final dateKey = DateTime(
+        workout.date.year,
+        workout.date.month,
+        workout.date.day,
+      );
+      final volume = (scoreMap[dateKey] ?? 0) + workout.totalVolume;
+      if (_bodyWeight != null && _bodyWeight! > 0) {
+        scoreMap[dateKey] = volume / _bodyWeight!;
+      } else {
+        scoreMap[dateKey] = volume;
+      }
+    }
+    return scoreMap;
+  }
+
   /// GitHub草スタイルのコントリビューショングラフ
   Widget _buildContributionGraph() {
-    // 過去16週間分のデータを表示
-    const weeksToShow = 16;
     final today = DateTime.now();
     final todayDate = DateTime(today.year, today.month, today.day);
 
@@ -75,23 +96,9 @@ extension _MusclePageHistory on _MusclePageState {
     final currentWeekStart = todayDate.subtract(Duration(days: todayDate.weekday % 7));
 
     // 16週間前の日曜日
-    final startDate = currentWeekStart.subtract(const Duration(days: (weeksToShow - 1) * 7));
+    final startDate = currentWeekStart.subtract(const Duration(days: (_weeksToShow - 1) * 7));
 
-    // ワークアウトデータをマップに変換（日付 -> ボリューム）
-    final workoutMap = <DateTime, double>{};
-    for (final workout in _recentWorkouts) {
-      final dateKey = DateTime(
-        workout.date.year,
-        workout.date.month,
-        workout.date.day,
-      );
-      workoutMap[dateKey] = (workoutMap[dateKey] ?? 0) + workout.totalVolume;
-    }
-
-    // 最大ボリュームを取得（色の濃さの計算用）
-    final maxVolume = workoutMap.values.isEmpty
-        ? 1.0
-        : workoutMap.values.reduce((a, b) => a > b ? a : b);
+    final scoreMap = _computeScoreMap();
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -127,7 +134,7 @@ extension _MusclePageHistory on _MusclePageState {
           ),
           const SizedBox(height: 16),
           // 月ラベル
-          _buildMonthLabels(startDate, weeksToShow),
+          _buildMonthLabels(startDate),
           const SizedBox(height: 4),
           // グラフ本体
           Row(
@@ -138,7 +145,7 @@ extension _MusclePageHistory on _MusclePageState {
               const SizedBox(width: 4),
               // グリッド
               Expanded(
-                child: _buildGrid(startDate, weeksToShow, workoutMap, maxVolume, todayDate),
+                child: _buildGrid(startDate, scoreMap, todayDate),
               ),
             ],
           ),
@@ -151,12 +158,12 @@ extension _MusclePageHistory on _MusclePageState {
   }
 
   /// 月ラベル
-  Widget _buildMonthLabels(DateTime startDate, int weeksToShow) {
+  Widget _buildMonthLabels(DateTime startDate) {
     final months = <String>[];
     final positions = <int>[];
     String? lastMonth;
 
-    for (int week = 0; week < weeksToShow; week++) {
+    for (int week = 0; week < _weeksToShow; week++) {
       final weekStart = startDate.add(Duration(days: week * 7));
       final monthName = _getMonthName(weekStart.month);
       if (monthName != lastMonth) {
@@ -172,7 +179,7 @@ extension _MusclePageHistory on _MusclePageState {
         height: 14,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final cellWidth = constraints.maxWidth / weeksToShow;
+            final cellWidth = constraints.maxWidth / _weeksToShow;
             return Stack(
               children: [
                 for (int i = 0; i < months.length; i++)
@@ -217,23 +224,21 @@ extension _MusclePageHistory on _MusclePageState {
   /// グリッド本体
   Widget _buildGrid(
     DateTime startDate,
-    int weeksToShow,
-    Map<DateTime, double> workoutMap,
-    double maxVolume,
+    Map<DateTime, double> scoreMap,
     DateTime today,
   ) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final cellSize = (constraints.maxWidth / weeksToShow) - 2;
+        final cellSize = (constraints.maxWidth / _weeksToShow) - 2;
         final actualCellSize = cellSize.clamp(8.0, 13.0);
 
         return Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: List.generate(weeksToShow, (weekIndex) {
+          children: List.generate(_weeksToShow, (weekIndex) {
             return Column(
-              children: List.generate(7, (dayIndex) {
+              children: List.generate(_daysInWeek, (dayIndex) {
                 final date = startDate.add(Duration(days: weekIndex * 7 + dayIndex));
-                final volume = workoutMap[date] ?? 0;
+                final score = scoreMap[date] ?? 0;
                 final isFuture = date.isAfter(today);
 
                 return Container(
@@ -243,7 +248,7 @@ extension _MusclePageHistory on _MusclePageState {
                   decoration: BoxDecoration(
                     color: isFuture
                         ? Colors.transparent
-                        : _getContributionColor(volume, maxVolume),
+                        : _getColorByScore(score),
                     borderRadius: BorderRadius.circular(2),
                     border: isFuture
                         ? Border.all(color: AppColors.border.withValues(alpha: 0.3), width: 0.5)
@@ -258,22 +263,19 @@ extension _MusclePageHistory on _MusclePageState {
     );
   }
 
-  /// ボリュームに基づいて色を取得
-  Color _getContributionColor(double volume, double maxVolume) {
-    if (volume <= 0) {
-      return AppColors.bgSub;
-    }
-
-    final ratio = volume / maxVolume;
-
-    if (ratio < 0.25) {
-      return const Color(0xFF0E4429); // 薄い緑
-    } else if (ratio < 0.5) {
-      return const Color(0xFF006D32); // 中間の緑
-    } else if (ratio < 0.75) {
-      return const Color(0xFF26A641); // 濃い緑
+  /// スコア（総ボリューム/体重）に基づいて色を取得
+  /// 基準: 80未満=薄緑, 80-120=中緑, 120-160=濃緑, 160以上=最濃緑
+  Color _getColorByScore(double score) {
+    if (score <= 0) {
+      return AppColors.bgSub;  // トレーニングなし
+    } else if (score < 80) {
+      return const Color(0xFF0E4429);  // 薄い緑
+    } else if (score < 120) {
+      return const Color(0xFF006D32);  // 中間の緑
+    } else if (score < 160) {
+      return const Color(0xFF26A641);  // 濃い緑
     } else {
-      return const Color(0xFF39D353); // 最も濃い緑
+      return const Color(0xFF39D353);  // 最も濃い緑
     }
   }
 

@@ -66,7 +66,7 @@ class AppInfoCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: (iconColor ?? AppColors.greenPrimary).withOpacity(0.15),
+              color: (iconColor ?? AppColors.greenPrimary).withValues(alpha:0.15),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(

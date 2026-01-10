@@ -60,7 +60,7 @@ class PickerBottomSheet extends StatelessWidget {
                       decoration: BoxDecoration(
                         border: Border(
                           bottom: BorderSide(
-                            color: AppColors.border.withOpacity(0.5),
+                            color: AppColors.border.withValues(alpha:0.5),
                           ),
                         ),
                       ),

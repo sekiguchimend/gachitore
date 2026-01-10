@@ -171,6 +171,9 @@ pub async fn get_profile(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
 ) -> AppResult<Json<UserProfile>> {
+    // Validate user_id (defense in depth - should already be validated by JWT)
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     // Get profile
     let profile_query = format!("user_id=eq.{}", user.user_id);
     let profiles: Vec<serde_json::Value> = state
@@ -233,6 +236,8 @@ pub async fn get_onboarding_status(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
 ) -> AppResult<Json<OnboardingStatusResponse>> {
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     let query = format!(
         "user_id=eq.{}&select=onboarding_completed",
         user.user_id
@@ -257,6 +262,8 @@ pub async fn complete_onboarding(
     Extension(user): Extension<AuthUser>,
     payload: Result<Json<CompleteOnboardingRequest>, JsonRejection>,
 ) -> AppResult<Json<MessageResponse>> {
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     let Json(req) = payload.map_err(|e| {
         AppError::BadRequest(format!(
             "onboarding/complete のリクエスト形式が不正です: {}",
@@ -407,6 +414,8 @@ pub async fn update_profile(
     Extension(user): Extension<AuthUser>,
     Json(req): Json<UpdateProfileRequest>,
 ) -> AppResult<Json<MessageResponse>> {
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     // Validate optional fields if provided
     if let Some(ref goal) = req.goal {
         validate_goal(goal)?;
@@ -576,6 +585,8 @@ pub async fn upload_avatar(
     Extension(user): Extension<AuthUser>,
     mut multipart: Multipart,
 ) -> AppResult<Json<UploadAvatarResponse>> {
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
     // Get the file from multipart
     let mut bytes: Option<Vec<u8>> = None;
 
@@ -703,15 +714,17 @@ fn validate_avatar_image(bytes: &[u8]) -> AppResult<(&'static str, String)> {
 // =============================================================================
 
 #[derive(Debug, Serialize)]
-pub struct WorkoutDateWithVolume {
+pub struct WorkoutDateWithScore {
     pub date: String,
     pub volume: f64,
+    pub score: f64,  // volume / body_weight
 }
 
 #[derive(Debug, Serialize)]
 pub struct WorkoutDatesResponse {
     pub dates: Vec<String>,
-    pub workouts: Vec<WorkoutDateWithVolume>,
+    pub workouts: Vec<WorkoutDateWithScore>,
+    pub body_weight: Option<f64>,
 }
 
 /// GET /users/:id/workout-dates - get workout dates for a specific user
@@ -721,20 +734,34 @@ pub async fn get_user_workout_dates(
     axum::extract::Path(user_id): axum::extract::Path<String>,
 ) -> AppResult<Json<WorkoutDatesResponse>> {
     // Validate user_id is a valid UUID
-    let _: Uuid = user_id
-        .parse()
-        .map_err(|_| AppError::BadRequest("Invalid user ID".to_string()))?;
+    crate::api::validation::validate_uuid(&user_id)?;
+    crate::api::validation::validate_uuid(&user.user_id)?;
 
-    // Get workout dates with total_volume for the user (past 16 weeks = 112 days)
-    let query = format!(
+    // Parallel fetch: body_metrics and workouts
+    let weight_query = format!(
+        "user_id=eq.{}&select=weight_kg&order=date.desc&limit=1",
+        user_id
+    );
+    let workout_query = format!(
         "user_id=eq.{}&select=date,total_volume&order=date.desc&limit=112",
         user_id
     );
 
-    let workouts: Vec<serde_json::Value> = state
-        .supabase
-        .select("workouts", &query, &user.token)
-        .await?;
+    let (weight_result, workouts) = tokio::join!(
+        state.supabase.select::<serde_json::Value>("body_metrics", &weight_query, &user.token),
+        state.supabase.select::<serde_json::Value>("workouts", &workout_query, &user.token)
+    );
+
+    let weight_result = weight_result.unwrap_or_default();
+    let workouts = workouts?;
+
+    let body_weight: Option<f64> = weight_result
+        .first()
+        .and_then(|w| {
+            w["weight_kg"]
+                .as_f64()
+                .or_else(|| w["weight_kg"].as_str().and_then(|s| s.parse::<f64>().ok()))
+        });
 
     // Group by date and sum volumes
     let mut date_volumes: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
@@ -749,15 +776,21 @@ pub async fn get_user_workout_dates(
         }
     }
 
-    // Convert to sorted vec
-    let mut workout_list: Vec<WorkoutDateWithVolume> = date_volumes
+    // Convert to sorted vec with score calculation
+    let mut workout_list: Vec<WorkoutDateWithScore> = date_volumes
         .into_iter()
-        .map(|(date, volume)| WorkoutDateWithVolume { date, volume })
+        .map(|(date, volume)| {
+            let score = match body_weight {
+                Some(bw) if bw > 0.0 => volume / bw,
+                _ => 0.0,  // No body weight data, score is 0
+            };
+            WorkoutDateWithScore { date, volume, score }
+        })
         .collect();
     workout_list.sort_by(|a, b| b.date.cmp(&a.date));
 
     // Also return dates array for backwards compatibility
     let dates: Vec<String> = workout_list.iter().map(|w| w.date.clone()).collect();
 
-    Ok(Json(WorkoutDatesResponse { dates, workouts: workout_list }))
+    Ok(Json(WorkoutDatesResponse { dates, workouts: workout_list, body_weight }))
 }

@@ -36,7 +36,7 @@ extension _SettingsPageUi on _SettingsPageState {
                   width: 64,
                   height: 64,
                   decoration: BoxDecoration(
-                    color: AppColors.greenPrimary.withOpacity(0.15),
+                    color: AppColors.greenPrimary.withValues(alpha:0.15),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: ClipRRect(

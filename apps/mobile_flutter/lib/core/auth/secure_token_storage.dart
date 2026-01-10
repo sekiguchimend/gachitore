@@ -119,10 +119,12 @@ class SecureTokenStorage {
 
   /// Clear all auth-related data
   static Future<void> clearAll() async {
-    await _storage.delete(key: AuthStorageKeys.accessToken);
-    await _storage.delete(key: AuthStorageKeys.refreshToken);
-    await _storage.delete(key: AuthStorageKeys.userId);
-    await _storage.delete(key: AuthStorageKeys.userEmail);
+    await Future.wait([
+      _storage.delete(key: AuthStorageKeys.accessToken),
+      _storage.delete(key: AuthStorageKeys.refreshToken),
+      _storage.delete(key: AuthStorageKeys.userId),
+      _storage.delete(key: AuthStorageKeys.userEmail),
+    ]);
   }
 
   /// Check if user has stored credentials

@@ -1,6 +1,52 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 
+class _ButtonContent extends StatelessWidget {
+  final String text;
+  final bool isLoading;
+  final Color loadingColor;
+  final IconData? icon;
+
+  const _ButtonContent({
+    required this.text,
+    required this.isLoading,
+    required this.loadingColor,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          color: loadingColor,
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.max,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        if (icon != null) ...[
+          Icon(icon, size: 20),
+          const SizedBox(width: 8),
+        ],
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// Primary filled button
 class AppButton extends StatelessWidget {
   final String text;
@@ -22,25 +68,12 @@ class AppButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final button = ElevatedButton(
       onPressed: isLoading ? null : onPressed,
-      child: isLoading
-          ? const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: AppColors.textPrimary,
-              ),
-            )
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (icon != null) ...[
-                  Icon(icon, size: 20),
-                  const SizedBox(width: 8),
-                ],
-                Text(text),
-              ],
-            ),
+      child: _ButtonContent(
+        text: text,
+        isLoading: isLoading,
+        loadingColor: AppColors.textPrimary,
+        icon: icon,
+      ),
     );
 
     if (isExpanded) {
@@ -75,25 +108,12 @@ class AppOutlinedButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final button = OutlinedButton(
       onPressed: isLoading ? null : onPressed,
-      child: isLoading
-          ? const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: AppColors.greenPrimary,
-              ),
-            )
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (icon != null) ...[
-                  Icon(icon, size: 20),
-                  const SizedBox(width: 8),
-                ],
-                Text(text),
-              ],
-            ),
+      child: _ButtonContent(
+        text: text,
+        isLoading: isLoading,
+        loadingColor: AppColors.greenPrimary,
+        icon: icon,
+      ),
     );
 
     if (isExpanded) {

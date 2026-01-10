@@ -98,7 +98,7 @@ class _TypingDotState extends State<_TypingDot>
           width: 8,
           height: 8,
           decoration: BoxDecoration(
-            color: AppColors.textTertiary.withOpacity(_animation.value),
+            color: AppColors.textTertiary.withValues(alpha:_animation.value),
             shape: BoxShape.circle,
           ),
         );

@@ -163,7 +163,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       width: 80,
                       height: 80,
                       decoration: BoxDecoration(
-                        color: AppColors.greenPrimary.withOpacity(0.15),
+                        color: AppColors.greenPrimary.withValues(alpha:0.15),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: const Icon(
@@ -215,7 +215,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: AppColors.error.withOpacity(0.15),
+                    color: AppColors.error.withValues(alpha:0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(

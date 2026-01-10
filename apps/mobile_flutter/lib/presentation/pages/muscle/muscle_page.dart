@@ -54,16 +54,17 @@ class _MusclePageState extends ConsumerState<MusclePage>
 
   List<Exercise> _exercises = [];
   List<WorkoutSession> _recentWorkouts = [];
+  double? _bodyWeight;
+
+  // キャッシュ用
+  List<Exercise>? _cachedRecordedExercises;
+  List<Exercise>? _cachedFilteredExercises;
+  int _lastFilteredMuscleGroup = -1;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _tabController.addListener(() {
-      if (!_tabController.indexIsChanging) {
-        setState(() {});
-      }
-    });
     _loadData();
   }
 
@@ -71,7 +72,22 @@ class _MusclePageState extends ConsumerState<MusclePage>
     await Future.wait([
       _loadExercises(),
       _loadWorkoutHistory(),
+      _loadBodyWeight(),
     ]);
+  }
+
+  Future<void> _loadBodyWeight() async {
+    try {
+      final authService = ref.read(authServiceProvider);
+      final profile = await authService.getUserProfile();
+      if (mounted && profile != null) {
+        setState(() {
+          _bodyWeight = (profile['weight_kg'] as num?)?.toDouble();
+        });
+      }
+    } catch (e) {
+      // Ignore error, weight is optional
+    }
   }
 
   Future<void> _loadExercises() async {
@@ -81,6 +97,7 @@ class _MusclePageState extends ConsumerState<MusclePage>
       if (mounted) {
         setState(() {
           _exercises = exercises;
+          _clearExerciseCache();
           _isLoadingExercises = false;
         });
       }
@@ -114,17 +131,35 @@ class _MusclePageState extends ConsumerState<MusclePage>
     super.dispose();
   }
 
-  // 記録済みの種目のみを取得（lastWeightまたはlastRepsが0より大きい）
+  // 記録済みの種目のみを取得（キャッシュ付き）
   List<Exercise> get _recordedExercises {
-    return _exercises.where((e) => e.lastWeight > 0 || e.lastReps > 0).toList();
+    _cachedRecordedExercises ??= _exercises.where((e) => e.lastWeight > 0 || e.lastReps > 0).toList();
+    return _cachedRecordedExercises!;
   }
 
+  // フィルタリング済み種目（キャッシュ付き）
   List<Exercise> get _filteredExercises {
+    if (_cachedFilteredExercises != null && _lastFilteredMuscleGroup == _selectedMuscleGroup) {
+      return _cachedFilteredExercises!;
+    }
+
     final recorded = _recordedExercises;
-    if (_selectedMuscleGroup == 0) return recorded;
-    final group = _muscleGroups[_selectedMuscleGroup];
-    final targetMuscles = _muscleJaToEn[group] ?? [];
-    return recorded.where((e) => targetMuscles.contains(e.muscleGroup)).toList();
+    if (_selectedMuscleGroup == 0) {
+      _cachedFilteredExercises = recorded;
+    } else {
+      final group = _muscleGroups[_selectedMuscleGroup];
+      final targetMuscles = _muscleJaToEn[group] ?? [];
+      _cachedFilteredExercises = recorded.where((e) => targetMuscles.contains(e.muscleGroup)).toList();
+    }
+    _lastFilteredMuscleGroup = _selectedMuscleGroup;
+    return _cachedFilteredExercises!;
+  }
+
+  // exercisesが更新されたらキャッシュをクリア
+  void _clearExerciseCache() {
+    _cachedRecordedExercises = null;
+    _cachedFilteredExercises = null;
+    _lastFilteredMuscleGroup = -1;
   }
 
   @override

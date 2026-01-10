@@ -65,10 +65,10 @@ class _QuickActionButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: AppColors.greenPrimary.withOpacity(0.15),
+          color: AppColors.greenPrimary.withValues(alpha:0.15),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: AppColors.greenPrimary.withOpacity(0.3),
+            color: AppColors.greenPrimary.withValues(alpha:0.3),
           ),
         ),
         child: Row(

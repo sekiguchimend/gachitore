@@ -251,10 +251,12 @@ class AuthService {
 
   // Save auth data to secure storage
   Future<void> _saveAuthData(AuthResponse response) async {
-    await SecureTokenStorage.setAccessToken(response.accessToken);
-    await SecureTokenStorage.setRefreshToken(response.refreshToken);
-    await SecureTokenStorage.setUserId(response.user.id);
-    await SecureTokenStorage.setUserEmail(response.user.email);
+    await Future.wait([
+      SecureTokenStorage.setAccessToken(response.accessToken),
+      SecureTokenStorage.setRefreshToken(response.refreshToken),
+      SecureTokenStorage.setUserId(response.user.id),
+      SecureTokenStorage.setUserEmail(response.user.email),
+    ]);
     await _apiClient.setToken(response.accessToken);
   }
 

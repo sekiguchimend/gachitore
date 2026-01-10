@@ -76,7 +76,7 @@ class _LevelCard extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color:
-              isSelected ? AppColors.greenPrimary.withOpacity(0.15) : AppColors.bgCard,
+              isSelected ? AppColors.greenPrimary.withValues(alpha:0.15) : AppColors.bgCard,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected ? AppColors.greenPrimary : AppColors.border,

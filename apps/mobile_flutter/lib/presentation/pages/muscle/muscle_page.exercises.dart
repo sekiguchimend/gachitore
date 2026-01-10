@@ -126,7 +126,7 @@ extension _MusclePageExercises on _MusclePageState {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: AppColors.greenPrimary.withOpacity(0.15),
+                color: AppColors.greenPrimary.withValues(alpha:0.15),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(
