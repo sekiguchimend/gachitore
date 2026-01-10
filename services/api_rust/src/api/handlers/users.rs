@@ -703,8 +703,15 @@ fn validate_avatar_image(bytes: &[u8]) -> AppResult<(&'static str, String)> {
 // =============================================================================
 
 #[derive(Debug, Serialize)]
+pub struct WorkoutDateWithVolume {
+    pub date: String,
+    pub volume: f64,
+}
+
+#[derive(Debug, Serialize)]
 pub struct WorkoutDatesResponse {
     pub dates: Vec<String>,
+    pub workouts: Vec<WorkoutDateWithVolume>,
 }
 
 /// GET /users/:id/workout-dates - get workout dates for a specific user
@@ -718,9 +725,9 @@ pub async fn get_user_workout_dates(
         .parse()
         .map_err(|_| AppError::BadRequest("Invalid user ID".to_string()))?;
 
-    // Get workout dates for the user (past 12 weeks = 84 days)
+    // Get workout dates with total_volume for the user (past 16 weeks = 112 days)
     let query = format!(
-        "user_id=eq.{}&select=date&order=date.desc&limit=84",
+        "user_id=eq.{}&select=date,total_volume&order=date.desc&limit=112",
         user_id
     );
 
@@ -729,15 +736,28 @@ pub async fn get_user_workout_dates(
         .select("workouts", &query, &user.token)
         .await?;
 
-    // Extract unique dates
-    let mut dates: Vec<String> = workouts
+    // Group by date and sum volumes
+    let mut date_volumes: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    for w in &workouts {
+        if let Some(date) = w["date"].as_str() {
+            // total_volume can be a number or string (PostgreSQL numeric type)
+            let volume = w["total_volume"]
+                .as_f64()
+                .or_else(|| w["total_volume"].as_str().and_then(|s| s.parse::<f64>().ok()))
+                .unwrap_or(0.0);
+            *date_volumes.entry(date.to_string()).or_insert(0.0) += volume;
+        }
+    }
+
+    // Convert to sorted vec
+    let mut workout_list: Vec<WorkoutDateWithVolume> = date_volumes
         .into_iter()
-        .filter_map(|w| w["date"].as_str().map(String::from))
+        .map(|(date, volume)| WorkoutDateWithVolume { date, volume })
         .collect();
+    workout_list.sort_by(|a, b| b.date.cmp(&a.date));
 
-    // Remove duplicates (in case of multiple workouts per day)
-    dates.sort();
-    dates.dedup();
+    // Also return dates array for backwards compatibility
+    let dates: Vec<String> = workout_list.iter().map(|w| w.date.clone()).collect();
 
-    Ok(Json(WorkoutDatesResponse { dates }))
+    Ok(Json(WorkoutDatesResponse { dates, workouts: workout_list }))
 }

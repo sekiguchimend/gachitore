@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
+import '../../../data/models/board_models.dart';
 import '../../../data/models/meal_models.dart';
 
 /// ユーザープロフィールページ
@@ -29,7 +30,7 @@ class UserProfilePage extends ConsumerStatefulWidget {
 class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   bool _loading = true;
   String? _error;
-  List<String> _workoutDates = [];
+  WorkoutDatesWithVolume? _workoutData;
   List<MealEntry> _todayMeals = [];
 
   @override
@@ -51,8 +52,15 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
         boardService.getUserMealsToday(widget.userId),
       ]);
       if (!mounted) return;
+      final workoutData = results[0] as WorkoutDatesWithVolume;
+      // デバッグログ
+      debugPrint('=== WorkoutData Debug ===');
+      debugPrint('dates: ${workoutData.dates}');
+      debugPrint('workouts: ${workoutData.workouts.map((w) => "${w.date}: ${w.volume}").toList()}');
+      debugPrint('volumeMap: ${workoutData.toVolumeMap()}');
+      debugPrint('========================');
       setState(() {
-        _workoutDates = results[0] as List<String>;
+        _workoutData = workoutData;
         _todayMeals = results[1] as List<MealEntry>;
         _loading = false;
       });
@@ -163,7 +171,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
       );
     }
 
-    if (_error != null) {
+    if (_error != null || _workoutData == null) {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -184,7 +192,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
       );
     }
 
-    return _TrainingGrass(workoutDates: _workoutDates);
+    return _TrainingGrass(workoutData: _workoutData!);
   }
 
   Widget _buildAvatar(String? avatarUrl, String displayName) {
@@ -413,22 +421,29 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
 
 /// GitHub風のトレーニング履歴草グラフ
 class _TrainingGrass extends StatelessWidget {
-  final List<String> workoutDates;
+  final WorkoutDatesWithVolume workoutData;
 
-  const _TrainingGrass({required this.workoutDates});
+  const _TrainingGrass({required this.workoutData});
 
   @override
   Widget build(BuildContext context) {
     final today = DateTime.now();
-    final workoutSet = workoutDates.toSet();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final volumeMap = workoutData.toVolumeMap();
 
-    // 過去12週間 (84日) を表示
-    const weeksToShow = 12;
+    // 過去16週間を表示（自分の履歴ページと同じ）
+    const weeksToShow = 16;
     const daysInWeek = 7;
 
-    // 開始日を計算 (今日から weeksToShow 週間前の日曜日)
-    final daysFromSunday = today.weekday % 7;
-    final startDate = today.subtract(Duration(days: (weeksToShow * daysInWeek) + daysFromSunday - 1));
+    // 今週の日曜日を取得（週の開始）
+    final currentWeekStart = todayDate.subtract(Duration(days: todayDate.weekday % 7));
+    // 16週間前の日曜日
+    final startDate = currentWeekStart.subtract(const Duration(days: (weeksToShow - 1) * 7));
+
+    // 最大ボリュームを計算（色の濃さの計算用）
+    final maxVolume = volumeMap.values.isEmpty
+        ? 1.0
+        : volumeMap.values.reduce((a, b) => a > b ? a : b);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -458,7 +473,7 @@ class _TrainingGrass extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                '${workoutDates.length}回',
+                '${workoutData.dates.length}回',
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -480,7 +495,7 @@ class _TrainingGrass extends StatelessWidget {
               const SizedBox(width: 4),
               // グラフ本体
               Expanded(
-                child: _buildGrassGrid(startDate, weeksToShow, daysInWeek, today, workoutSet),
+                child: _buildGrassGrid(startDate, weeksToShow, daysInWeek, todayDate, volumeMap, maxVolume),
               ),
             ],
           ),
@@ -546,37 +561,63 @@ class _TrainingGrass extends StatelessWidget {
     int weeksToShow,
     int daysInWeek,
     DateTime today,
-    Set<String> workoutSet,
+    Map<String, double> volumeMap,
+    double maxVolume,
   ) {
-    return Row(
-      children: List.generate(weeksToShow, (weekIndex) {
-        return Column(
-          children: List.generate(daysInWeek, (dayIndex) {
-            final date = startDate.add(Duration(days: weekIndex * 7 + dayIndex));
-            final dateStr = DateFormat('yyyy-MM-dd').format(date);
-            final hasWorkout = workoutSet.contains(dateStr);
-            final isFuture = date.isAfter(today);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cellSize = (constraints.maxWidth / weeksToShow) - 2;
+        final actualCellSize = cellSize.clamp(8.0, 13.0);
 
-            return Container(
-              width: 12,
-              height: 12,
-              margin: const EdgeInsets.all(1),
-              decoration: BoxDecoration(
-                color: isFuture
-                    ? Colors.transparent
-                    : hasWorkout
-                        ? AppColors.greenPrimary
-                        : AppColors.bgSub,
-                borderRadius: BorderRadius.circular(2),
-                border: isFuture
-                    ? Border.all(color: AppColors.border.withOpacity(0.3))
-                    : null,
-              ),
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(weeksToShow, (weekIndex) {
+            return Column(
+              children: List.generate(daysInWeek, (dayIndex) {
+                final date = startDate.add(Duration(days: weekIndex * 7 + dayIndex));
+                final dateStr = DateFormat('yyyy-MM-dd').format(date);
+                final volume = volumeMap[dateStr] ?? 0;
+                final isFuture = date.isAfter(today);
+
+                return Container(
+                  width: actualCellSize,
+                  height: actualCellSize,
+                  margin: const EdgeInsets.all(1),
+                  decoration: BoxDecoration(
+                    color: isFuture
+                        ? Colors.transparent
+                        : _getContributionColor(volume, maxVolume),
+                    borderRadius: BorderRadius.circular(2),
+                    border: isFuture
+                        ? Border.all(color: AppColors.border.withOpacity(0.3), width: 0.5)
+                        : null,
+                  ),
+                );
+              }),
             );
           }),
         );
-      }),
+      },
     );
+  }
+
+  /// ボリュームに基づいて色を取得（GitHub風4段階）
+  Color _getContributionColor(double volume, double maxVolume) {
+    if (volume <= 0) {
+      return AppColors.bgSub;
+    }
+
+    final ratio = volume / maxVolume;
+
+    if (ratio < 0.25) {
+      return const Color(0xFF0E4429); // 薄い緑
+    } else if (ratio < 0.5) {
+      return const Color(0xFF006D32); // 中間の緑
+    } else if (ratio < 0.75) {
+      return const Color(0xFF26A641); // 濃い緑
+    } else {
+      return const Color(0xFF39D353); // 最も濃い緑
+    }
   }
 
   Widget _buildLegend() {
@@ -584,48 +625,41 @@ class _TrainingGrass extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         const Text(
-          '少',
+          'Less',
           style: TextStyle(
-            fontSize: 10,
+            fontSize: 9,
+            fontWeight: FontWeight.w500,
             color: AppColors.textTertiary,
           ),
         ),
         const SizedBox(width: 4),
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            color: AppColors.bgSub,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 2),
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            color: AppColors.greenPrimary.withOpacity(0.5),
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 2),
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            color: AppColors.greenPrimary,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
+        _buildLegendCell(AppColors.bgSub),
+        _buildLegendCell(const Color(0xFF0E4429)),
+        _buildLegendCell(const Color(0xFF006D32)),
+        _buildLegendCell(const Color(0xFF26A641)),
+        _buildLegendCell(const Color(0xFF39D353)),
         const SizedBox(width: 4),
         const Text(
-          '多',
+          'More',
           style: TextStyle(
-            fontSize: 10,
+            fontSize: 9,
+            fontWeight: FontWeight.w500,
             color: AppColors.textTertiary,
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildLegendCell(Color color) {
+    return Container(
+      width: 10,
+      height: 10,
+      margin: const EdgeInsets.symmetric(horizontal: 1),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(2),
+      ),
     );
   }
 }

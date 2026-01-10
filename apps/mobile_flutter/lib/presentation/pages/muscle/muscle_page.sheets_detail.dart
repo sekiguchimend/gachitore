@@ -312,6 +312,7 @@ extension _MusclePageSheetsDetail on _MusclePageState {
 
   Widget _buildDetailStat(String label, String value) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Text(
           label,
@@ -322,12 +323,18 @@ extension _MusclePageSheetsDetail on _MusclePageState {
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 100),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
           ),
         ),
       ],

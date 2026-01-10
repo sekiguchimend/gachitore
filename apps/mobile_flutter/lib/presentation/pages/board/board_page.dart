@@ -8,6 +8,7 @@ import '../../../core/providers/providers.dart';
 import '../../../data/models/board_models.dart';
 import '../../../data/models/meal_models.dart';
 import 'user_profile_page.dart';
+import 'post_detail_page.dart';
 
 /// 添付データの種類
 enum AttachmentType { workout, meal }
@@ -129,53 +130,7 @@ class _BoardPageState extends ConsumerState<BoardPage> {
   }
 
   void _showImagePicker() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.bgCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 12),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: AppColors.greenPrimary),
-              title: const Text(
-                'ライブラリから選択',
-                style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600),
-              ),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickImage(ImageSource.gallery);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined, color: AppColors.greenPrimary),
-              title: const Text(
-                '写真を撮る',
-                style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600),
-              ),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickImage(ImageSource.camera);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
+    _pickImage(ImageSource.gallery);
   }
 
   Future<void> _submitPost() async {
@@ -346,6 +301,49 @@ class _BoardPageState extends ConsumerState<BoardPage> {
       );
       return false;
     }
+  }
+
+  Future<void> _togglePostLike(BoardPost post) async {
+    try {
+      final boardService = ref.read(boardServiceProvider);
+      final res = await boardService.togglePostLike(post.id);
+      if (!mounted) return;
+      setState(() {
+        final index = _posts.indexWhere((p) => p.id == post.id);
+        if (index != -1) {
+          _posts[index] = _posts[index].copyWith(
+            isLiked: res.liked,
+            likeCount: res.likeCount,
+          );
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('いいねに失敗しました: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  void _openPostDetail(BoardPost post) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PostDetailPage(
+          post: post,
+          onPostUpdated: (updatedPost) {
+            setState(() {
+              final index = _posts.indexWhere((p) => p.id == updatedPost.id);
+              if (index != -1) {
+                _posts[index] = updatedPost;
+              }
+            });
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _deletePost(BoardPost post) async {
@@ -802,6 +800,8 @@ class _BoardPageState extends ConsumerState<BoardPage> {
                 onDelete: isOwn ? () => _deletePost(post) : null,
                 onImageTap: post.imageUrl != null ? () => _showImageViewer(post.imageUrl!) : null,
                 onAvatarTap: () => _openUserProfile(post),
+                onLikeTap: () => _togglePostLike(post),
+                onCommentTap: () => _openPostDetail(post),
               ),
               Container(height: 1, color: AppColors.border),
             ],
@@ -878,6 +878,8 @@ class _PostTile extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onImageTap;
   final VoidCallback? onAvatarTap;
+  final VoidCallback? onLikeTap;
+  final VoidCallback? onCommentTap;
 
   static const int _maxNameLength = 12;
 
@@ -887,6 +889,8 @@ class _PostTile extends StatelessWidget {
     this.onDelete,
     this.onImageTap,
     this.onAvatarTap,
+    this.onLikeTap,
+    this.onCommentTap,
   });
 
   String _formatDate(String isoDate) {
@@ -994,6 +998,63 @@ class _PostTile extends StatelessWidget {
                       onTap: onImageTap,
                     ),
                   ],
+                  // Action row (いいね・コメント)
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      // コメントボタン
+                      GestureDetector(
+                        onTap: onCommentTap,
+                        behavior: HitTestBehavior.opaque,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 24),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.chat_bubble_outline,
+                                size: 18,
+                                color: AppColors.textTertiary,
+                              ),
+                              if (post.commentCount > 0) ...[
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${post.commentCount}',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.textTertiary,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      // いいねボタン
+                      GestureDetector(
+                        onTap: onLikeTap,
+                        behavior: HitTestBehavior.opaque,
+                        child: Row(
+                          children: [
+                            Icon(
+                              post.isLiked ? Icons.favorite : Icons.favorite_border,
+                              size: 18,
+                              color: post.isLiked ? AppColors.error : AppColors.textTertiary,
+                            ),
+                            if (post.likeCount > 0) ...[
+                              const SizedBox(width: 4),
+                              Text(
+                                '${post.likeCount}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: post.isLiked ? AppColors.error : AppColors.textTertiary,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

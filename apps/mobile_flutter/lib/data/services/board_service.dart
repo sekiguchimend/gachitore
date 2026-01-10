@@ -98,12 +98,81 @@ class BoardService {
     }
   }
 
-  /// ユーザーのワークアウト履歴日付のみを取得（N+1回避のため必要なデータのみ）
-  Future<List<String>> getUserWorkoutDates(String userId) async {
+  // ==================== いいね関連 ====================
+
+  /// 投稿にいいねをトグル（追加/削除）
+  Future<LikeResponse> togglePostLike(String postId) async {
+    try {
+      final res = await _apiClient.post('/posts/$postId/like');
+      return LikeResponse.fromJson(res.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
+  /// コメントにいいねをトグル（追加/削除）
+  Future<LikeResponse> toggleCommentLike(String commentId) async {
+    try {
+      final res = await _apiClient.post('/comments/$commentId/like');
+      return LikeResponse.fromJson(res.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
+  // ==================== コメント関連 ====================
+
+  /// 投稿のコメント一覧を取得
+  Future<ListCommentsResponse> listComments(String postId, {int limit = 50, int offset = 0}) async {
+    try {
+      final res = await _apiClient.get(
+        '/posts/$postId/comments',
+        queryParameters: {'limit': limit, 'offset': offset},
+      );
+      return ListCommentsResponse.fromJson(res.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
+  /// コメントを作成
+  Future<CreateCommentResponse> createComment(
+    String postId,
+    String content, {
+    String? replyToUserId,
+  }) async {
+    try {
+      final data = <String, dynamic>{
+        'content': content,
+      };
+      if (replyToUserId != null) {
+        data['reply_to_user_id'] = replyToUserId;
+      }
+
+      final res = await _apiClient.post(
+        '/posts/$postId/comments',
+        data: data,
+      );
+      return CreateCommentResponse.fromJson(res.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
+  /// コメントを削除
+  Future<void> deleteComment(String commentId) async {
+    try {
+      await _apiClient.delete('/comments/$commentId');
+    } on DioException catch (e) {
+      throw ApiException.fromDioError(e);
+    }
+  }
+
+  /// ユーザーのワークアウト履歴を取得（日付とボリューム）
+  Future<WorkoutDatesWithVolume> getUserWorkoutDates(String userId) async {
     try {
       final res = await _apiClient.get('/users/$userId/workout-dates');
-      final dates = (res.data['dates'] as List?)?.map((d) => d.toString()).toList() ?? [];
-      return dates;
+      return WorkoutDatesWithVolume.fromJson(res.data as Map<String, dynamic>);
     } on DioException catch (e) {
       throw ApiException.fromDioError(e);
     }

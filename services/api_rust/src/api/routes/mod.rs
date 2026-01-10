@@ -23,6 +23,7 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         .nest("/log", log_routes(state.clone()))
         .nest("/ai", ai_routes(state.clone()))
         .nest("/posts", posts_routes(state.clone()))
+        .nest("/comments", comments_routes(state.clone()))
         .nest("/support", support_routes(state.clone()))
 }
 
@@ -114,6 +115,16 @@ fn posts_routes(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/", get(handlers::list_posts).post(handlers::create_post))
         .route("/:id", delete(handlers::delete_post))
+        .route("/:id/like", post(handlers::toggle_post_like))
+        .route("/:id/comments", get(handlers::list_comments).post(handlers::create_comment))
+        .route_layer(middleware::from_fn_with_state(state, auth_middleware))
+}
+
+/// /v1/comments/* routes (auth required) - コメント操作
+fn comments_routes(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/:id", delete(handlers::delete_comment))
+        .route("/:id/like", post(handlers::toggle_comment_like))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 

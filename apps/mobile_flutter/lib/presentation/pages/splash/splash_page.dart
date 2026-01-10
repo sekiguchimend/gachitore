@@ -58,14 +58,15 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
                   fit: BoxFit.contain,
                 ),
               ),
-              const SizedBox(height: 4),
-              // App name
-              const Text(
-                'ガチトレ',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.textPrimary,
+              Transform.translate(
+                offset: const Offset(0, -40),
+                child: const Text(
+                  'ガチトレ',
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.textPrimary,
+                  ),
                 ),
               ),
               const Spacer(flex: 3),
