@@ -298,8 +298,9 @@ pub async fn get_user_meals_today(
         .await?;
     }
 
-    // Get today's date in UTC
-    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    // Get today's date in JST (Japan Standard Time, UTC+9)
+    let jst = chrono::FixedOffset::east_opt(9 * 3600).unwrap();
+    let today = chrono::Utc::now().with_timezone(&jst).format("%Y-%m-%d").to_string();
 
     let query = format!(
         "user_id=eq.{}&date=eq.{}&select=id,date,time,meal_type,note,meal_items(id,name,quantity,unit,calories,protein_g,fat_g,carbs_g)&order=time",
