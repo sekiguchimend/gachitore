@@ -46,6 +46,7 @@ extension _FoodPageSections on _FoodPageState {
   }
 
   Widget _buildDateSelector() {
+    // パフォーマンス最適化: DateTime.now()を一度だけ呼び出し
     final now = DateTime.now();
     final dates = List.generate(7, (i) => now.subtract(Duration(days: 6 - i)));
 
@@ -215,10 +216,36 @@ extension _FoodPageSections on _FoodPageState {
     final summary = _nutritionSummary;
     if (summary == null) return const SizedBox.shrink();
 
+    return _PfcChartWidget(summary: summary);
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  String _getDayName(int weekday) {
+    const days = ['月', '火', '水', '木', '金', '土', '日'];
+    return days[weekday - 1];
+  }
+}
+
+/// PFCチャートウィジェット（パフォーマンス最適化のため分離）
+class _PfcChartWidget extends StatelessWidget {
+  final NutritionSummary summary;
+
+  const _PfcChartWidget({required this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    // パフォーマンス最適化: 計算を一度だけ実行
     final total = summary.protein + summary.fat + summary.carbs;
     final proteinRatio = total > 0 ? summary.protein / total : 0.0;
     final fatRatio = total > 0 ? summary.fat / total : 0.0;
     final carbsRatio = total > 0 ? summary.carbs / total : 0.0;
+
+    final proteinPercent = (proteinRatio * 100).round();
+    final fatPercent = (fatRatio * 100).round();
+    final carbsPercent = (carbsRatio * 100).round();
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -260,15 +287,15 @@ extension _FoodPageSections on _FoodPageState {
                         child: Row(
                           children: [
                             Expanded(
-                              flex: (proteinRatio * 100).round().clamp(1, 100),
+                              flex: proteinPercent.clamp(1, 100),
                               child: Container(color: AppColors.error),
                             ),
                             Expanded(
-                              flex: (fatRatio * 100).round().clamp(1, 100),
+                              flex: fatPercent.clamp(1, 100),
                               child: Container(color: AppColors.warning),
                             ),
                             Expanded(
-                              flex: (carbsRatio * 100).round().clamp(1, 100),
+                              flex: carbsPercent.clamp(1, 100),
                               child: Container(color: AppColors.info),
                             ),
                           ],
@@ -281,17 +308,17 @@ extension _FoodPageSections on _FoodPageState {
                       children: [
                         _buildPfcLegend(
                           'P',
-                          '${(proteinRatio * 100).round()}%',
+                          '$proteinPercent%',
                           AppColors.error,
                         ),
                         _buildPfcLegend(
                           'F',
-                          '${(fatRatio * 100).round()}%',
+                          '$fatPercent%',
                           AppColors.warning,
                         ),
                         _buildPfcLegend(
                           'C',
-                          '${(carbsRatio * 100).round()}%',
+                          '$carbsPercent%',
                           AppColors.info,
                         ),
                       ],
@@ -328,15 +355,6 @@ extension _FoodPageSections on _FoodPageState {
         ),
       ],
     );
-  }
-
-  bool _isSameDay(DateTime a, DateTime b) {
-    return a.year == b.year && a.month == b.month && a.day == b.day;
-  }
-
-  String _getDayName(int weekday) {
-    const days = ['月', '火', '水', '木', '金', '土', '日'];
-    return days[weekday - 1];
   }
 }
 

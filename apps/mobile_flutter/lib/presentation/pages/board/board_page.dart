@@ -56,6 +56,10 @@ class _BoardPageState extends ConsumerState<BoardPage> {
   // 投稿ボタンの状態管理用
   bool _hasText = false;
 
+  // パフォーマンス最適化: サービスをキャッシュ
+  late final _boardService = ref.read(boardServiceProvider);
+  late final _authService = ref.read(authServiceProvider);
+
   @override
   void initState() {
     super.initState();
@@ -80,8 +84,7 @@ class _BoardPageState extends ConsumerState<BoardPage> {
   }
 
   Future<void> _loadCurrentUser() async {
-    final authService = ref.read(authServiceProvider);
-    final userId = await authService.currentUserId;
+    final userId = await _authService.currentUserId;
     if (mounted) {
       setState(() => _currentUserId = userId);
     }
@@ -94,8 +97,7 @@ class _BoardPageState extends ConsumerState<BoardPage> {
       _hasMore = true;
     });
     try {
-      final boardService = ref.read(boardServiceProvider);
-      final res = await boardService.listPosts(limit: _pageSize, offset: 0);
+      final res = await _boardService.listPosts(limit: _pageSize, offset: 0);
       if (!mounted) return;
       setState(() {
         _posts = res.posts;
@@ -115,11 +117,11 @@ class _BoardPageState extends ConsumerState<BoardPage> {
     if (_loadingMore || !_hasMore) return;
     setState(() => _loadingMore = true);
     try {
-      final boardService = ref.read(boardServiceProvider);
-      final res = await boardService.listPosts(limit: _pageSize, offset: _posts.length);
+      final res = await _boardService.listPosts(limit: _pageSize, offset: _posts.length);
       if (!mounted) return;
       setState(() {
-        _posts = [..._posts, ...res.posts];
+        // パフォーマンス最適化: addAllを使用してリスト再構築を回避
+        _posts.addAll(res.posts);
         _loadingMore = false;
         _hasMore = res.posts.length >= _pageSize;
       });
@@ -292,16 +294,16 @@ class _BoardPageState extends ConsumerState<BoardPage> {
 
   Future<bool> _createPost(String content, XFile? image) async {
     try {
-      final boardService = ref.read(boardServiceProvider);
       CreatePostResponse res;
       if (image != null) {
-        res = await boardService.createPostWithImage(content, image);
+        res = await _boardService.createPostWithImage(content, image);
       } else {
-        res = await boardService.createTextPost(content);
+        res = await _boardService.createTextPost(content);
       }
       if (!mounted) return false;
       setState(() {
-        _posts = [res.post, ..._posts];
+        // パフォーマンス最適化: insertを使用してリスト再構築を回避
+        _posts.insert(0, res.post);
       });
       return true;
     } catch (e) {
@@ -318,8 +320,7 @@ class _BoardPageState extends ConsumerState<BoardPage> {
 
   Future<void> _togglePostLike(BoardPost post) async {
     try {
-      final boardService = ref.read(boardServiceProvider);
-      final res = await boardService.togglePostLike(post.id);
+      final res = await _boardService.togglePostLike(post.id);
       if (!mounted) return;
       setState(() {
         final index = _posts.indexWhere((p) => p.id == post.id);
@@ -411,8 +412,7 @@ class _BoardPageState extends ConsumerState<BoardPage> {
     if (confirmed != true) return;
 
     try {
-      final boardService = ref.read(boardServiceProvider);
-      await boardService.deletePost(post.id);
+      await _boardService.deletePost(post.id);
       if (!mounted) return;
       setState(() {
         _posts.removeWhere((p) => p.id == post.id);

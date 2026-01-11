@@ -11,8 +11,10 @@ extension _FoodPageAddMealSheet on _FoodPageState {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (sheetContext) {
-        final bottomPadding = MediaQuery.of(sheetContext).padding.bottom;
-        final maxHeight = MediaQuery.of(sheetContext).size.height * 0.75;
+        // パフォーマンス最適化: MediaQueryを一度だけ取得
+        final mediaQuery = MediaQuery.of(sheetContext);
+        final bottomPadding = mediaQuery.padding.bottom;
+        final maxHeight = mediaQuery.size.height * 0.75;
 
         return SafeArea(
           top: false,

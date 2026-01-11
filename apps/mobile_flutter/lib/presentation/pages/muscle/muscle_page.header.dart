@@ -367,13 +367,16 @@ extension _MusclePageHeader on _MusclePageState {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.only(
-            left: 24,
-            right: 24,
-            top: 24,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-          ),
+        builder: (context, setSheetState) {
+          // パフォーマンス最適化: MediaQueryを一度だけ取得
+          final mediaQuery = MediaQuery.of(context);
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 24,
+              right: 24,
+              top: 24,
+              bottom: mediaQuery.viewInsets.bottom + 24,
+            ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -489,7 +492,8 @@ extension _MusclePageHeader on _MusclePageState {
               ),
             ],
           ),
-        ),
+        );
+        },
       ),
     );
   }

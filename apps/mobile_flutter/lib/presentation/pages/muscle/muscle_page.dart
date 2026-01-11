@@ -61,6 +61,11 @@ class _MusclePageState extends ConsumerState<MusclePage>
   List<Exercise>? _cachedFilteredExercises;
   int _lastFilteredMuscleGroup = -1;
 
+  // パフォーマンス最適化: 履歴計算のキャッシュ
+  Map<DateTime, double>? _cachedScoreMap;
+  Map<DateTime, List<WorkoutSession>>? _cachedGroupedWorkouts;
+  List<WorkoutSession>? _lastWorkoutsForCache;
+
   @override
   void initState() {
     super.initState();
@@ -116,6 +121,8 @@ class _MusclePageState extends ConsumerState<MusclePage>
         setState(() {
           _recentWorkouts = history;
           _isLoadingHistory = false;
+          // パフォーマンス最適化: 履歴キャッシュをクリア
+          _clearHistoryCache();
         });
       }
     } catch (e) {
@@ -123,6 +130,13 @@ class _MusclePageState extends ConsumerState<MusclePage>
         setState(() => _isLoadingHistory = false);
       }
     }
+  }
+
+  // 履歴キャッシュをクリア
+  void _clearHistoryCache() {
+    _cachedScoreMap = null;
+    _cachedGroupedWorkouts = null;
+    _lastWorkoutsForCache = null;
   }
 
   @override

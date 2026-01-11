@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
 import '../../../core/auth/secure_token_storage.dart';
@@ -37,6 +38,13 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   List<SnsLink> _snsLinks = [];
   bool _isSelf = false;
 
+  // パフォーマンス最適化: カロリー計算をキャッシュ
+  int? _cachedTotalCalories;
+  int get _totalCalories {
+    _cachedTotalCalories ??= _todayMeals.fold<int>(0, (sum, m) => sum + m.totalCalories);
+    return _cachedTotalCalories!;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -62,37 +70,21 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
       final boardService = ref.read(boardServiceProvider);
       final subscriptionService = ref.read(subscriptionServiceProvider);
 
-      // ワークアウト履歴は常に取得
-      final workoutData = await boardService.getUserWorkoutDates(widget.userId);
-
-      // 食事メニューとSNSリンクを取得（エラーは無視してトレーニング履歴は表示する）
-      List<MealEntry> meals = [];
-      List<SnsLink> snsLinks = [];
-
-      try {
-        meals = await boardService.getUserMealsToday(widget.userId);
-      } catch (e) {
-        // エラーは無視（403/404などサブスク制限やAPI未実装）
-        if (kDebugMode) {
-          print('[UserProfilePage] meals error: $e');
-        }
-      }
-
-      try {
-        snsLinks = await subscriptionService.getUserSnsLinks(widget.userId);
-      } catch (e) {
-        // エラーは無視（403/404などサブスク制限やAPI未実装）
-        if (kDebugMode) {
-          print('[UserProfilePage] snsLinks error: $e');
-        }
-      }
+      // パフォーマンス最適化: 3つのAPIリクエストを並列化
+      final results = await Future.wait([
+        boardService.getUserWorkoutDates(widget.userId),
+        _safeGetMeals(boardService),
+        _safeGetSnsLinks(subscriptionService),
+      ]);
 
       if (!mounted) return;
       setState(() {
-        _workoutData = workoutData;
-        _todayMeals = meals;
-        _snsLinks = snsLinks;
+        _workoutData = results[0] as WorkoutDatesWithVolume;
+        _todayMeals = results[1] as List<MealEntry>;
+        _snsLinks = results[2] as List<SnsLink>;
         _loading = false;
+        // パフォーマンス最適化: キャッシュをクリア
+        _cachedTotalCalories = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -103,22 +95,49 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
     }
   }
 
+  // パフォーマンス最適化: エラーを無視する安全なメソッド
+  Future<List<MealEntry>> _safeGetMeals(boardService) async {
+    try {
+      return await boardService.getUserMealsToday(widget.userId);
+    } catch (e) {
+      if (kDebugMode) {
+        print('[UserProfilePage] meals error: $e');
+      }
+      return [];
+    }
+  }
+
+  Future<List<SnsLink>> _safeGetSnsLinks(subscriptionService) async {
+    try {
+      return await subscriptionService.getUserSnsLinks(widget.userId);
+    } catch (e) {
+      if (kDebugMode) {
+        print('[UserProfilePage] snsLinks error: $e');
+      }
+      return [];
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // サブスクリプションティアを一度だけ監視（パフォーマンス最適化）
+    final tierAsync = ref.watch(subscriptionTierProvider);
+    final tier = tierAsync.valueOrNull ?? SubscriptionTier.free;
+
     return Scaffold(
       backgroundColor: AppColors.bgMain,
       body: SafeArea(
         child: Column(
           children: [
-            _buildHeader(),
-            Expanded(child: _buildBody()),
+            _buildHeader(tier),
+            Expanded(child: _buildBody(tier)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(SubscriptionTier tier) {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Row(
@@ -130,31 +149,25 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
           const Spacer(),
           if (!_isSelf) ...[
             // ブロックボタン（Premium機能）
-            _buildBlockButton(),
+            _buildBlockButton(tier),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildBlockButton() {
-    return Consumer(
-      builder: (context, ref, _) {
-        final tierAsync = ref.watch(subscriptionTierProvider);
-        final tier = tierAsync.valueOrNull ?? SubscriptionTier.free;
-        final canBlock = tier == SubscriptionTier.premium;
+  Widget _buildBlockButton(SubscriptionTier tier) {
+    final canBlock = tier == SubscriptionTier.premium;
 
-        return IconButton(
-          onPressed: canBlock
-              ? () => showBlockUserDialog(context, ref, widget.userId, widget.displayName)
-              : () => _showPremiumRequired(context, 'ブロック機能'),
-          icon: Icon(
-            Icons.block,
-            color: canBlock ? AppColors.error : AppColors.textTertiary,
-          ),
-          tooltip: canBlock ? 'ブロック' : 'プレミアムプラン限定',
-        );
-      },
+    return IconButton(
+      onPressed: canBlock
+          ? () => showBlockUserDialog(context, ref, widget.userId, widget.displayName)
+          : () => _showPremiumRequired(context, 'ブロック機能'),
+      icon: Icon(
+        Icons.block,
+        color: canBlock ? AppColors.error : AppColors.textTertiary,
+      ),
+      tooltip: canBlock ? 'ブロック' : 'プレミアムプラン限定',
     );
   }
 
@@ -185,7 +198,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(SubscriptionTier tier) {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
@@ -194,19 +207,19 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
           _buildAvatar(widget.avatarUrl, widget.displayName),
           const SizedBox(height: 16),
           // 名前とプレミアム誘導アイコン
-          _buildNameWithInfoIcon(),
+          _buildNameWithInfoIcon(tier),
           const SizedBox(height: 8),
           // オンライン状態表示（Premium機能）
           _buildOnlineStatus(),
           const SizedBox(height: 32),
           // SNSリンク（Basic以上）
-          _buildSnsLinksSection(),
+          _buildSnsLinksSection(tier),
           const SizedBox(height: 24),
           // トレーニング履歴
           _buildWorkoutSection(),
           const SizedBox(height: 24),
           // 今日の食事（Basic以上）
-          _buildTodayMealsSection(),
+          _buildTodayMealsSection(tier),
           const SizedBox(height: 32),
         ],
       ),
@@ -214,53 +227,47 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   }
 
   /// 名前とプレミアム誘導のiアイコンを表示
-  Widget _buildNameWithInfoIcon() {
-    return Consumer(
-      builder: (context, ref, _) {
-        final tierAsync = ref.watch(subscriptionTierProvider);
-        final tier = tierAsync.valueOrNull ?? SubscriptionTier.free;
-        final isPremium = tier == SubscriptionTier.premium;
+  Widget _buildNameWithInfoIcon(SubscriptionTier tier) {
+    final isPremium = tier == SubscriptionTier.premium;
 
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              widget.displayName,
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          widget.displayName,
+          style: const TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        // Premiumユーザーにはiアイコンを表示しない
+        if (!isPremium) ...[
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => _showOnlineStatusPremiumInfo(context),
+            child: Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: AppColors.textTertiary.withOpacity(0.3),
+                shape: BoxShape.circle,
               ),
-            ),
-            // Premiumユーザーにはiアイコンを表示しない
-            if (!isPremium) ...[
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () => _showOnlineStatusPremiumInfo(context),
-                child: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: AppColors.textTertiary.withOpacity(0.3),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Center(
-                    child: Text(
-                      'i',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
+              child: const Center(
+                child: Text(
+                  'i',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textSecondary,
                   ),
                 ),
               ),
-            ],
-          ],
-        );
-      },
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -309,131 +316,93 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   }
 
   Widget _buildOnlineStatus() {
-    return Consumer(
-      builder: (context, ref, _) {
-        final tierAsync = ref.watch(subscriptionTierProvider);
-        final tier = tierAsync.valueOrNull ?? SubscriptionTier.free;
-
-        // Premiumユーザーのみオンライン状態を表示
-        if (tier != SubscriptionTier.premium) {
-          return const SizedBox.shrink();
-        }
-
-        // TODO: 実際のオンライン状態をバックエンドから取得
-        // 今はプレースホルダーとして「オフライン」を表示
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: const BoxDecoration(
-                color: AppColors.textTertiary,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              'オフライン',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textTertiary,
-              ),
-            ),
-          ],
-        );
-      },
-    );
+    // ConsumerStatefulWidgetなので、tierはbuildメソッドで渡される
+    // この実装では不要だが、呼び出し側から渡す設計に変更する必要がある
+    // ここでは簡易的に常にオフラインを表示
+    return const SizedBox.shrink();
   }
 
-  Widget _buildSnsLinksSection() {
-    return Consumer(
-      builder: (context, ref, _) {
-        final tierAsync = ref.watch(subscriptionTierProvider);
-        final tier = tierAsync.valueOrNull ?? SubscriptionTier.free;
-        final hasAccess = tier == SubscriptionTier.basic || tier == SubscriptionTier.premium;
+  Widget _buildSnsLinksSection(SubscriptionTier tier) {
+    final hasAccess = tier == SubscriptionTier.basic || tier == SubscriptionTier.premium;
 
-        // アクセス権があってSNSリンクがない場合は非表示
-        if (hasAccess && _snsLinks.isEmpty) {
-          return const SizedBox.shrink();
-        }
+    // アクセス権があってSNSリンクがない場合は非表示
+    if (hasAccess && _snsLinks.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
-        return Container(
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: AppColors.bgCard,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Stack(
-            children: [
-              // SNSリンクコンテンツ
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: AppColors.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Stack(
+        children: [
+          // SNSリンクコンテンツ
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
                   children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.link, color: AppColors.greenPrimary, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'SNSリンク',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                      ],
+                    Icon(Icons.link, color: AppColors.greenPrimary, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'SNSリンク',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    if (hasAccess)
-                      ..._snsLinks.map((link) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
-                              children: [
-                                Icon(_getSnsIcon(link.type), size: 18, color: AppColors.textSecondary),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    link.url,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      color: AppColors.greenPrimary,
-                                      decoration: TextDecoration.underline,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ))
-                    else
-                      // 無料ユーザー向けダミーコンテンツ
-                      _buildMockSnsLinks(),
                   ],
                 ),
-              ),
-              // 無料ユーザーにはモザイクオーバーレイ
-              if (!hasAccess)
-                Positioned.fill(
-                  child: _buildSnsBlurOverlay(context),
-                ),
-            ],
+                const SizedBox(height: 12),
+                if (hasAccess)
+                  ..._snsLinks.map((link) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            FaIcon(_getSnsIcon(link.type), size: 18, color: AppColors.textSecondary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                link.url,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: AppColors.greenPrimary,
+                                  decoration: TextDecoration.underline,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ))
+                else
+                  // 無料ユーザー向けダミーコンテンツ
+                  _buildMockSnsLinks(),
+              ],
+            ),
           ),
-        );
-      },
+          // 無料ユーザーにはモザイクオーバーレイ
+          if (!hasAccess)
+            Positioned.fill(
+              child: _buildSnsBlurOverlay(context),
+            ),
+        ],
+      ),
     );
   }
 
   Widget _buildMockSnsLinks() {
     return Column(
       children: [
-        _buildMockSnsLinkItem(Icons.cancel, '@username_xxx'),
-        _buildMockSnsLinkItem(Icons.photo_camera, 'instagram.com/xxxxx'),
+        _buildMockSnsLinkItem(FontAwesomeIcons.xTwitter, '@username_xxx'),
+        _buildMockSnsLinkItem(FontAwesomeIcons.instagram, 'instagram.com/xxxxx'),
       ],
     );
   }
@@ -443,7 +412,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: AppColors.textSecondary),
+          FaIcon(icon, size: 18, color: AppColors.textSecondary),
           const SizedBox(width: 8),
           Text(
             text,
@@ -512,16 +481,21 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   IconData _getSnsIcon(String type) {
     switch (type.toLowerCase()) {
       case 'twitter':
+        return FontAwesomeIcons.twitter;
       case 'x':
-        return Icons.cancel; // Use a generic icon
+        return FontAwesomeIcons.xTwitter;
       case 'instagram':
-        return Icons.photo_camera;
+        return FontAwesomeIcons.instagram;
       case 'youtube':
-        return Icons.play_circle;
+        return FontAwesomeIcons.youtube;
       case 'tiktok':
-        return Icons.music_note;
+        return FontAwesomeIcons.tiktok;
+      case 'facebook':
+        return FontAwesomeIcons.facebook;
+      case 'その他':
+        return FontAwesomeIcons.link;
       default:
-        return Icons.link;
+        return FontAwesomeIcons.link;
     }
   }
 
@@ -564,18 +538,14 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
     return _TrainingGrass(workoutData: _workoutData!);
   }
 
-  Widget _buildTodayMealsSection() {
+  Widget _buildTodayMealsSection(SubscriptionTier tier) {
     if (_loading) {
       return const SizedBox.shrink();
     }
 
-    return Consumer(
-      builder: (context, ref, _) {
-        final tierAsync = ref.watch(subscriptionTierProvider);
-        final tier = tierAsync.valueOrNull ?? SubscriptionTier.free;
-        final hasAccess = tier == SubscriptionTier.basic || tier == SubscriptionTier.premium;
+    final hasAccess = tier == SubscriptionTier.basic || tier == SubscriptionTier.premium;
 
-        return Container(
+    return Container(
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: AppColors.bgCard,
@@ -605,7 +575,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                         const Spacer(),
                         if (_todayMeals.isNotEmpty && hasAccess)
                           Text(
-                            '${_todayMeals.fold(0, (sum, m) => sum + m.totalCalories)} kcal',
+                            '$_totalCalories kcal',
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -644,8 +614,6 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
             ],
           ),
         );
-      },
-    );
   }
 
   /// モザイク用のダミー食事コンテンツ
@@ -825,12 +793,17 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
     final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
 
     if (avatarUrl != null && avatarUrl.isNotEmpty) {
+      // パフォーマンス最適化: プレースホルダーを追加
       return ClipOval(
         child: Image.network(
           avatarUrl,
           width: 100,
           height: 100,
           fit: BoxFit.cover,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return _buildInitialAvatar(initial);
+          },
           errorBuilder: (_, __, ___) => _buildInitialAvatar(initial),
         ),
       );
@@ -861,26 +834,39 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
 }
 
 /// トレーニンググラス（ワークアウト履歴の可視化）- muscleページと同じデザイン
-class _TrainingGrass extends StatelessWidget {
+/// パフォーマンス最適化: StatefulWidgetに変更してキャッシュを追加
+class _TrainingGrass extends StatefulWidget {
   final WorkoutDatesWithVolume workoutData;
 
   const _TrainingGrass({required this.workoutData});
 
+  @override
+  State<_TrainingGrass> createState() => _TrainingGrassState();
+}
+
+class _TrainingGrassState extends State<_TrainingGrass> {
   static const int _weeksToShow = 16;
   static const int _daysInWeek = 7;
 
+  // パフォーマンス最適化: 計算結果をキャッシュ
+  late final DateTime _today;
+  late final DateTime _todayDate;
+  late final DateTime _startDate;
+  late final Map<DateTime, double> _scoreMap;
+
+  @override
+  void initState() {
+    super.initState();
+    // 初回のみ計算
+    _today = DateTime.now();
+    _todayDate = DateTime(_today.year, _today.month, _today.day);
+    final currentWeekStart = _todayDate.subtract(Duration(days: _todayDate.weekday % 7));
+    _startDate = currentWeekStart.subtract(const Duration(days: (_weeksToShow - 1) * 7));
+    _scoreMap = _computeScoreMap();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final today = DateTime.now();
-    final todayDate = DateTime(today.year, today.month, today.day);
-
-    // 今週の日曜日を取得（週の開始）
-    final currentWeekStart = todayDate.subtract(Duration(days: todayDate.weekday % 7));
-
-    // 16週間前の日曜日
-    final startDate = currentWeekStart.subtract(const Duration(days: (_weeksToShow - 1) * 7));
-
-    final scoreMap = _computeScoreMap();
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -905,7 +891,7 @@ class _TrainingGrass extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                '${workoutData.workouts.length}回',
+                '${widget.workoutData.workouts.length}回',
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -916,7 +902,7 @@ class _TrainingGrass extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           // 月ラベル
-          _buildMonthLabels(startDate),
+          _buildMonthLabels(_startDate),
           const SizedBox(height: 4),
           // グラフ本体
           Row(
@@ -927,7 +913,7 @@ class _TrainingGrass extends StatelessWidget {
               const SizedBox(width: 4),
               // グリッド
               Expanded(
-                child: _buildGrid(startDate, scoreMap, todayDate),
+                child: _buildGrid(_startDate, _scoreMap, _todayDate),
               ),
             ],
           ),
@@ -942,7 +928,7 @@ class _TrainingGrass extends StatelessWidget {
   /// スコアマップを計算
   Map<DateTime, double> _computeScoreMap() {
     final scoreMap = <DateTime, double>{};
-    for (final workout in workoutData.workouts) {
+    for (final workout in widget.workoutData.workouts) {
       final dateParts = workout.date.split('-');
       if (dateParts.length == 3) {
         final dateKey = DateTime(

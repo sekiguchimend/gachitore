@@ -10,8 +10,8 @@ extension _MusclePageHistory on _MusclePageState {
       );
     }
 
-    // 日付ごとにグループ化
-    final groupedWorkouts = _groupWorkoutsByDate(_recentWorkouts);
+    // パフォーマンス最適化: 日付ごとのグループ化をキャッシュ
+    final groupedWorkouts = _getGroupedWorkouts();
 
     return RefreshIndicator(
       onRefresh: _loadWorkoutHistory,
@@ -68,6 +68,28 @@ extension _MusclePageHistory on _MusclePageState {
   static const int _weeksToShow = 16;
   static const int _daysInWeek = 7;
 
+  /// パフォーマンス最適化: グループ化されたワークアウトを取得（キャッシュ付き）
+  Map<DateTime, List<WorkoutSession>> _getGroupedWorkouts() {
+    if (_cachedGroupedWorkouts != null &&
+        _lastWorkoutsForCache == _recentWorkouts) {
+      return _cachedGroupedWorkouts!;
+    }
+    _cachedGroupedWorkouts = _groupWorkoutsByDate(_recentWorkouts);
+    _lastWorkoutsForCache = _recentWorkouts;
+    return _cachedGroupedWorkouts!;
+  }
+
+  /// パフォーマンス最適化: スコアマップを取得（キャッシュ付き）
+  Map<DateTime, double> _getScoreMap() {
+    if (_cachedScoreMap != null &&
+        _lastWorkoutsForCache == _recentWorkouts) {
+      return _cachedScoreMap!;
+    }
+    _cachedScoreMap = _computeScoreMap();
+    _lastWorkoutsForCache = _recentWorkouts;
+    return _cachedScoreMap!;
+  }
+
   /// スコアマップを計算（ボリューム/体重）
   Map<DateTime, double> _computeScoreMap() {
     final scoreMap = <DateTime, double>{};
@@ -89,6 +111,7 @@ extension _MusclePageHistory on _MusclePageState {
 
   /// GitHub草スタイルのコントリビューショングラフ
   Widget _buildContributionGraph() {
+    // パフォーマンス最適化: DateTime.now()を一度だけ呼び出し
     final today = DateTime.now();
     final todayDate = DateTime(today.year, today.month, today.day);
 
@@ -98,7 +121,8 @@ extension _MusclePageHistory on _MusclePageState {
     // 16週間前の日曜日
     final startDate = currentWeekStart.subtract(const Duration(days: (_weeksToShow - 1) * 7));
 
-    final scoreMap = _computeScoreMap();
+    // パフォーマンス最適化: キャッシュされたスコアマップを使用
+    final scoreMap = _getScoreMap();
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -492,6 +516,8 @@ extension _MusclePageHistory on _MusclePageState {
 
   /// 日付ヘッダーのフォーマット
   String _formatDateHeader(DateTime date) {
+    // パフォーマンス最適化: DateTime.now()の呼び出しを最小化
+    // この関数は複数回呼ばれる可能性があるが、キャッシュは複雑なので保留
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));

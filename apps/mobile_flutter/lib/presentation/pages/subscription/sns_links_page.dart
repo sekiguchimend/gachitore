@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/auth/secure_token_storage.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
 import '../../../data/models/subscription_models.dart';
+import '../../widgets/common/app_button.dart';
 
 /// SNSリンク管理ページ（Basic/Premium限定）
 class SnsLinksPage extends ConsumerStatefulWidget {
@@ -31,12 +34,44 @@ class _SnsLinksPageState extends ConsumerState<SnsLinksPage> {
   }
 
   Future<void> _loadExistingLinks() async {
-    // TODO: Load existing links from backend
-    setState(() {
-      if (_links.isEmpty) {
-        _links.add(SnsLinkInput());
+    try {
+      final subscriptionService = ref.read(subscriptionServiceProvider);
+      final userId = await SecureTokenStorage.getUserId();
+
+      if (userId == null) return;
+
+      final existingLinks = await subscriptionService.getUserSnsLinks(userId);
+
+      if (!mounted) return;
+
+      setState(() {
+        _links.clear();
+        if (existingLinks.isEmpty) {
+          _links.add(SnsLinkInput());
+        } else {
+          for (final link in existingLinks) {
+            final input = SnsLinkInput();
+            input.typeController.text = _capitalizeFirstLetter(link.type);
+            input.urlController.text = link.url;
+            _links.add(input);
+          }
+        }
+      });
+    } catch (e) {
+      // エラーの場合は空のフォームを表示
+      if (mounted) {
+        setState(() {
+          if (_links.isEmpty) {
+            _links.add(SnsLinkInput());
+          }
+        });
       }
-    });
+    }
+  }
+
+  String _capitalizeFirstLetter(String text) {
+    if (text.isEmpty) return text;
+    return text[0].toUpperCase() + text.substring(1);
   }
 
   Future<void> _saveLinks() async {
@@ -124,63 +159,77 @@ class _SnsLinksPageState extends ConsumerState<SnsLinksPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF323232),
+      backgroundColor: AppColors.bgMain,
       appBar: AppBar(
-        title: const Text('SNSリンク設定', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.black,
-        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text(
+          'SNSリンク設定',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        backgroundColor: AppColors.bgMain,
+        iconTheme: const IconThemeData(color: AppColors.textPrimary),
         elevation: 0,
-        actions: [
-          if (_isLoading)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-            )
-          else
-            TextButton(
-              onPressed: _saveLinks,
-              child: const Text(
-                '保存',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-        ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
+      body: Column(
         children: [
-          const Text(
-            'プロフィールに表示するSNSリンクを追加',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                const Text(
+                  'プロフィールに表示するSNSリンクを追加',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ..._links.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final link = entry.value;
+                  return _buildLinkInput(index, link);
+                }),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _addLink,
+                  icon: const Icon(Icons.add, color: AppColors.greenPrimary),
+                  label: const Text(
+                    'リンクを追加',
+                    style: TextStyle(
+                      color: AppColors.greenPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.greenPrimary),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 20),
-          ..._links.asMap().entries.map((entry) {
-            final index = entry.key;
-            final link = entry.value;
-            return _buildLinkInput(index, link);
-          }),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: _addLink,
-            icon: const Icon(Icons.add),
-            label: const Text('リンクを追加'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: const BorderSide(color: Colors.white54),
-              padding: const EdgeInsets.symmetric(vertical: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              color: AppColors.bgCard,
+              border: Border(
+                top: BorderSide(color: AppColors.border),
+              ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: AppButton(
+                text: '保存',
+                onPressed: _isLoading ? null : _saveLinks,
+                isLoading: _isLoading,
+              ),
             ),
           ),
         ],
@@ -190,12 +239,12 @@ class _SnsLinksPageState extends ConsumerState<SnsLinksPage> {
 
   Widget _buildLinkInput(int index, SnsLinkInput link) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.black,
+        color: AppColors.bgCard,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white24),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -206,15 +255,15 @@ class _SnsLinksPageState extends ConsumerState<SnsLinksPage> {
                 child: Text(
                   'リンク ${index + 1}',
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                     fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
               if (_links.length > 1)
                 IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
+                  icon: const Icon(Icons.delete_outline, color: AppColors.error),
                   onPressed: () => _removeLink(index),
                 ),
             ],
@@ -222,19 +271,19 @@ class _SnsLinksPageState extends ConsumerState<SnsLinksPage> {
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             value: link.typeController.text.isEmpty ? null : link.typeController.text,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'SNSの種類',
-              labelStyle: TextStyle(color: Colors.white70),
-              border: OutlineInputBorder(),
-              enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: Colors.white54),
+              labelStyle: const TextStyle(color: AppColors.textSecondary),
+              filled: true,
+              fillColor: AppColors.bgSub,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
               ),
-              focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: Colors.white),
-              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
-            dropdownColor: const Color(0xFF1E1E1E),
-            style: const TextStyle(color: Colors.white),
+            dropdownColor: AppColors.bgCard,
+            style: const TextStyle(color: AppColors.textPrimary),
             items: _availableTypes.map((type) {
               return DropdownMenuItem(
                 value: type,
@@ -250,19 +299,19 @@ class _SnsLinksPageState extends ConsumerState<SnsLinksPage> {
           const SizedBox(height: 12),
           TextField(
             controller: link.urlController,
-            style: const TextStyle(color: Colors.white),
-            decoration: const InputDecoration(
+            style: const TextStyle(color: AppColors.textPrimary),
+            decoration: InputDecoration(
               labelText: 'URL',
-              labelStyle: TextStyle(color: Colors.white70),
+              labelStyle: const TextStyle(color: AppColors.textSecondary),
               hintText: 'https://...',
-              hintStyle: TextStyle(color: Colors.white38),
-              border: OutlineInputBorder(),
-              enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: Colors.white54),
+              hintStyle: const TextStyle(color: AppColors.textTertiary),
+              filled: true,
+              fillColor: AppColors.bgSub,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
               ),
-              focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: Colors.white),
-              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
             keyboardType: TextInputType.url,
           ),

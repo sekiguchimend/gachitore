@@ -500,6 +500,36 @@ extension _SettingsPageDialogs on _SettingsPageState {
     );
   }
 
+  void _showSnsLinksEditor() async {
+    final subscriptionService = ref.read(subscriptionServiceProvider);
+    final userId = await SecureTokenStorage.getUserId();
+
+    if (userId == null) return;
+
+    // Load existing links
+    List<SnsLink> existingLinks = [];
+    try {
+      existingLinks = await subscriptionService.getUserSnsLinks(userId);
+    } catch (e) {
+      // Ignore errors, start with empty list
+    }
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.bgCard,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => _SnsLinksEditorSheet(
+        existingLinks: existingLinks,
+        subscriptionService: subscriptionService,
+      ),
+    );
+  }
+
   void _showLogoutConfirmation() {
     showDialog(
       context: context,
@@ -561,6 +591,336 @@ extension _SettingsPageDialogs on _SettingsPageState {
         ],
       ),
     );
+  }
+}
+
+class _SnsLinksEditorSheet extends StatefulWidget {
+  final List<SnsLink> existingLinks;
+  final SubscriptionService subscriptionService;
+
+  const _SnsLinksEditorSheet({
+    required this.existingLinks,
+    required this.subscriptionService,
+  });
+
+  @override
+  State<_SnsLinksEditorSheet> createState() => _SnsLinksEditorSheetState();
+}
+
+class _SnsLinksEditorSheetState extends State<_SnsLinksEditorSheet> {
+  final List<_SnsLinkInput> _links = [];
+  bool _isSaving = false;
+
+  final List<String> _availableTypes = [
+    'Twitter',
+    'Instagram',
+    'YouTube',
+    'TikTok',
+    'Facebook',
+    'その他',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.existingLinks.isEmpty) {
+      _links.add(_SnsLinkInput());
+    } else {
+      for (final link in widget.existingLinks) {
+        final input = _SnsLinkInput();
+        input.typeController.text = _capitalizeFirstLetter(link.type);
+        input.urlController.text = link.url;
+        _links.add(input);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final link in _links) {
+      link.dispose();
+    }
+    super.dispose();
+  }
+
+  String _capitalizeFirstLetter(String text) {
+    if (text.isEmpty) return text;
+    return text[0].toUpperCase() + text.substring(1);
+  }
+
+  void _addLink() {
+    setState(() {
+      _links.add(_SnsLinkInput());
+    });
+  }
+
+  void _removeLink(int index) {
+    setState(() {
+      _links[index].dispose();
+      _links.removeAt(index);
+    });
+  }
+
+  Future<void> _saveLinks() async {
+    final validLinks = _links
+        .where((link) =>
+            link.typeController.text.isNotEmpty &&
+            link.urlController.text.isNotEmpty)
+        .toList();
+
+    if (validLinks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('少なくとも1つのリンクを追加してください')),
+      );
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      final snsLinks = validLinks
+          .map((link) => SnsLink(
+                type: link.typeController.text.toLowerCase(),
+                url: link.urlController.text,
+              ))
+          .toList();
+
+      await widget.subscriptionService.updateMySnsLinks(snsLinks);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('SNSリンクを保存しました'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存に失敗しました: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 24,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              const Text(
+                'SNSリンク設定',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close, color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'プロフィールに表示するSNSリンクを追加',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  ..._links.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final link = entry.value;
+                    return _buildLinkInput(index, link);
+                  }),
+                  const SizedBox(height: 12),
+                  TextButton.icon(
+                    onPressed: _addLink,
+                    icon: const Icon(Icons.add, color: AppColors.greenPrimary, size: 20),
+                    label: const Text(
+                      'リンクを追加',
+                      style: TextStyle(
+                        color: AppColors.greenPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          AppButton(
+            text: '保存',
+            onPressed: _isSaving ? null : _saveLinks,
+            isLoading: _isSaving,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLinkInput(int index, _SnsLinkInput link) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.bgSub,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'リンク ${index + 1}',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (_links.length > 1)
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: AppColors.error, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () => _removeLink(index),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: link.typeController.text.isEmpty ? null : link.typeController.text,
+            decoration: InputDecoration(
+              labelText: 'SNSの種類',
+              labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              filled: true,
+              fillColor: AppColors.bgCard,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            dropdownColor: AppColors.bgCard,
+            style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+            items: _availableTypes.map((type) {
+              return DropdownMenuItem(value: type, child: Text(type));
+            }).toList(),
+            onChanged: (value) {
+              if (value != null) {
+                link.typeController.text = value;
+              }
+            },
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: link.inputTypeController.text.isEmpty ? 'url' : link.inputTypeController.text,
+            decoration: InputDecoration(
+              labelText: '入力形式',
+              labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              filled: true,
+              fillColor: AppColors.bgCard,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            dropdownColor: AppColors.bgCard,
+            style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+            items: const [
+              DropdownMenuItem(value: 'url', child: Text('URL')),
+              DropdownMenuItem(value: 'username', child: Text('アカウント名')),
+            ],
+            onChanged: (value) {
+              if (value != null) {
+                setState(() {
+                  link.inputTypeController.text = value;
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: link.urlController,
+            style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+            decoration: InputDecoration(
+              labelText: link.inputTypeController.text == 'username' ? 'アカウント名' : 'URL',
+              labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              hintText: link.inputTypeController.text == 'username' ? '@username' : 'https://...',
+              hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+              filled: true,
+              fillColor: AppColors.bgCard,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            keyboardType: link.inputTypeController.text == 'username'
+                ? TextInputType.text
+                : TextInputType.url,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SnsLinkInput {
+  final TextEditingController typeController = TextEditingController();
+  final TextEditingController urlController = TextEditingController();
+  final TextEditingController inputTypeController = TextEditingController(text: 'url');
+
+  void dispose() {
+    typeController.dispose();
+    urlController.dispose();
+    inputTypeController.dispose();
   }
 }
 

@@ -2,6 +2,7 @@ part of 'food_page.dart';
 
 extension _FoodPageMeals on _FoodPageState {
   String _selectedDateLabel() {
+    // パフォーマンス最適化: DateTime.now()を一度だけ呼び出し
     final now = DateTime.now();
     if (_isSameDay(_selectedDate, now)) return '今日';
     final weekday = _getDayName(_selectedDate.weekday);
@@ -49,17 +50,25 @@ extension _FoodPageMeals on _FoodPageState {
             ),
           ),
           const SizedBox(height: 12),
-          Builder(
-            builder: (context) {
-              final expansionTheme = Theme.of(context).copyWith(dividerColor: Colors.transparent);
-              return Column(
-                children: _meals.map((meal) => _buildMealCard(meal, expansionTheme)).toList(),
-              );
-            },
-          ),
+          // パフォーマンス最適化: Theme.of()をBuilder外で取得し、Column直接構築
+          ..._meals.map((meal) => _MealCard(meal: meal)),
         ],
       ),
     );
+  }
+}
+
+/// 食事カードウィジェット（パフォーマンス最適化のため分離）
+class _MealCard extends StatelessWidget {
+  final MealEntry meal;
+
+  const _MealCard({required this.meal});
+
+  @override
+  Widget build(BuildContext context) {
+    // テーマをここで一度だけ取得
+    final expansionTheme = Theme.of(context).copyWith(dividerColor: Colors.transparent);
+    return _buildMealCard(meal, expansionTheme);
   }
 
   Widget _buildMealCard(MealEntry meal, ThemeData expansionTheme) {

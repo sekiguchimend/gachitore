@@ -17,8 +17,10 @@ class PickerBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
-    final maxHeight = MediaQuery.of(context).size.height * 0.75;
+    // パフォーマンス最適化: MediaQueryを一度だけ取得
+    final mediaQuery = MediaQuery.of(context);
+    final bottomPadding = mediaQuery.padding.bottom;
+    final maxHeight = mediaQuery.size.height * 0.75;
 
     return SafeArea(
       top: false,

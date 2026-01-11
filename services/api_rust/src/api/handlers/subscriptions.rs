@@ -227,13 +227,12 @@ pub async fn update_sns_links(
     )
     .await?;
 
-    // Validate SNS links
+    // Validate SNS links - allow both URLs and account names
     for link in &req.sns_links {
-        if !link.url.starts_with("http://") && !link.url.starts_with("https://") {
-            return Err(AppError::BadRequest(format!(
-                "Invalid URL format: {}",
-                link.url
-            )));
+        if link.url.trim().is_empty() {
+            return Err(AppError::BadRequest(
+                "SNS link cannot be empty".to_string()
+            ));
         }
     }
 

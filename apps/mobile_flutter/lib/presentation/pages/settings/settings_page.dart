@@ -4,11 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:async';
+import '../../../core/auth/secure_token_storage.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/utils/chat_history_storage.dart';
 import '../../../data/models/subscription_models.dart';
+import '../../../data/services/subscription_service.dart';
 import '../../widgets/common/app_button.dart';
 import '../../widgets/settings/settings_tiles.dart';
 import '../../widgets/settings/picker_bottom_sheet.dart';
@@ -296,6 +298,47 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
   }
 
+  Widget _buildSnsLinksTile() {
+    final subscriptionTierAsync = ref.watch(subscriptionTierProvider);
+
+    return subscriptionTierAsync.when(
+      data: (tier) {
+        final hasAccess = tier == SubscriptionTier.basic || tier == SubscriptionTier.premium;
+
+        return SettingsTile(
+          icon: Icons.link,
+          title: 'SNSリンク',
+          subtitle: hasAccess ? 'Twitter、Instagramなど' : 'ベーシックプラン以上で利用可能',
+          onTap: hasAccess
+              ? () => _showSnsLinksEditor()
+              : () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('SNSリンク機能はベーシックプラン以上で利用できます'),
+                      backgroundColor: AppColors.warning,
+                    ),
+                  );
+                },
+          iconColor: hasAccess ? AppColors.greenPrimary : AppColors.textTertiary,
+        );
+      },
+      loading: () => SettingsTile(
+        icon: Icons.link,
+        title: 'SNSリンク',
+        subtitle: '読み込み中...',
+        onTap: () {},
+        iconColor: AppColors.textTertiary,
+      ),
+      error: (_, __) => SettingsTile(
+        icon: Icons.link,
+        title: 'SNSリンク',
+        subtitle: 'ベーシックプラン以上で利用可能',
+        onTap: () {},
+        iconColor: AppColors.textTertiary,
+      ),
+    );
+  }
+
   Widget _buildPlanTile() {
     final subscriptionTierAsync = ref.watch(subscriptionTierProvider);
     
@@ -459,6 +502,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 title: 'サブスクリプション',
                 children: [
                   _buildPlanTile(),
+                  _buildSnsLinksTile(),
                 ],
               ),
 
