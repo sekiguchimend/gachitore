@@ -22,9 +22,13 @@ impl GeminiClient {
 
     /// Generate content with Gemini API
     pub async fn generate(&self, prompt: &str, system_instruction: Option<&str>) -> AppResult<GeminiResponse> {
+        // SECURITY: Use header-based authentication instead of URL parameter to prevent:
+        // - API key exposure in HTTP logs
+        // - API key leakage via Referer headers
+        // - API key exposure in browser history
         let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-            self.model, self.api_key
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+            self.model
         );
 
         let mut contents = vec![Content {
@@ -69,6 +73,7 @@ impl GeminiClient {
         let response = self
             .client
             .post(&url)
+            .header("x-goog-api-key", &self.api_key)
             .json(&request)
             .send()
             .await
@@ -109,9 +114,10 @@ impl GeminiClient {
         messages: Vec<ChatMessage>,
         system_instruction: Option<&str>,
     ) -> AppResult<GeminiResponse> {
+        // SECURITY: Use header-based authentication (same as generate())
         let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-            self.model, self.api_key
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+            self.model
         );
 
         let contents: Vec<Content> = messages
@@ -140,6 +146,7 @@ impl GeminiClient {
         let response = self
             .client
             .post(&url)
+            .header("x-goog-api-key", &self.api_key)
             .json(&request)
             .send()
             .await

@@ -510,16 +510,30 @@ pub fn check_safety_flags(message: &str) -> Vec<String> {
         ("役割を変更", "prompt_injection"),
     ];
 
-    let message_lower = message.to_lowercase();
+    // SECURITY: Normalize Unicode to NFKD form to detect homoglyphs and lookalikes
+    // Remove zero-width characters and control characters to prevent bypass attacks
+    use unicode_normalization::UnicodeNormalization;
+
+    let normalized: String = message
+        .nfkd()
+        .filter(|c| {
+            !c.is_control() &&
+            *c != '\u{200B}' && // Zero-width space
+            *c != '\u{200C}' && // Zero-width non-joiner
+            *c != '\u{200D}' && // Zero-width joiner
+            *c != '\u{FEFF}'    // Zero-width no-break space
+        })
+        .collect::<String>()
+        .to_lowercase();
 
     for (jp, flag) in &dangerous_keywords {
-        if message_lower.contains(jp) {
+        if normalized.contains(jp) {
             flags.push(flag.to_string());
         }
     }
 
     for (pattern, flag) in &injection_patterns {
-        if message_lower.contains(&pattern.to_lowercase()) {
+        if normalized.contains(&pattern.to_lowercase()) {
             flags.push(flag.to_string());
         }
     }

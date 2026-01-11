@@ -43,7 +43,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     super.initState();
     _loadUserProfile();
     _loadNotificationSetting();
-    _loadWorkoutStats();
+    // パフォーマンス最適化: 重い処理をmicrotaskに移動して初期レンダリングをブロックしない
+    Future.microtask(() => _loadWorkoutStats());
   }
 
   Future<void> _loadNotificationSetting() async {

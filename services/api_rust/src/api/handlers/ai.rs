@@ -145,7 +145,8 @@ pub async fn ask_ai(
     // Resolve (or create) session before calling Gemini so we can fetch history
     let session_id = if let Some(sid) = req.session_id {
         let sid = sid.to_string();
-        // Verify session belongs to user (and exists)
+        // SECURITY: Verify session belongs to current user (IDOR protection)
+        // Query explicitly includes user_id check to prevent access to other users' sessions
         let existing: Option<serde_json::Value> = state
             .supabase
             .select_single(
@@ -157,23 +158,12 @@ pub async fn ask_ai(
         if existing.is_some() {
             sid
         } else {
-            // Create new session if the provided one is invalid/stale
-            let session_data = CreateAiSession {
-                user_id: user.user_id.clone(),
-                intent: "ask".to_string(),
-                model: state.config.gemini_model.clone(),
-                input_summary: Some(serde_json::json!({
-                    "state_version": user_state.version,
-                    "goal": user_state.profile.goal,
-                    "today_workout_count": user_state.today.workout_count,
-                })),
-                safety_flags: serde_json::to_value(&safety_flags).unwrap(),
-            };
-            let session: AiSessionResponse = state
-                .supabase
-                .insert("ai_sessions", &session_data, &user.token)
-                .await?;
-            session.id
+            // SECURITY: Reject invalid session_id instead of silently creating new session
+            // This prevents confusion and potential security issues
+            return Err(AppError::BadRequest(format!(
+                "Session {} not found or does not belong to user",
+                sid
+            )));
         }
     } else {
         // Create new session

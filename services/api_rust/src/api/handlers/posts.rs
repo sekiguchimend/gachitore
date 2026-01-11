@@ -96,15 +96,13 @@ pub async fn list_posts(
 
     // Fetch like counts, comment counts, and user's likes for each post
     let post_ids: Vec<String> = posts.iter().map(|p| p.id.clone()).collect();
-    
-    // Get like counts
-    let like_counts = get_post_like_counts(&state, &post_ids, &user.token).await;
-    
-    // Get comment counts
-    let comment_counts = get_post_comment_counts(&state, &post_ids, &user.token).await;
-    
-    // Get user's likes
-    let user_likes = get_user_post_likes(&state, &post_ids, &user.user_id, &user.token).await;
+
+    // Parallel query optimization: Run all 3 queries concurrently to reduce latency
+    let (like_counts, comment_counts, user_likes) = tokio::join!(
+        get_post_like_counts(&state, &post_ids, &user.token),
+        get_post_comment_counts(&state, &post_ids, &user.token),
+        get_user_post_likes(&state, &post_ids, &user.user_id, &user.token)
+    );
 
     // Fetch signed URLs for images, thumbnails, and avatars in parallel
     let url_futures: Vec<_> = posts
@@ -247,6 +245,7 @@ pub async fn create_post(
             return Err(AppError::BadRequest("image is too large (max 10MB)".to_string()));
         }
 
+        // SECURITY: Validate image format using magic bytes (not client-provided Content-Type)
         let (ext, validated_content_type) = validate_image_magic_bytes(&bytes)?;
         let object_id = Uuid::new_v4().to_string();
         let object_path = format!("{}/{}.{}", user.user_id, object_id, ext);
@@ -536,7 +535,8 @@ async fn get_post_like_counts(
     }
 
     // Query likes grouped by post_id
-    let ids_str = post_ids.iter().map(|id| format!("\"{}\"", id)).collect::<Vec<_>>().join(",");
+    // SECURITY: UUIDs are already validated, no quotes needed for PostgREST in.() syntax
+    let ids_str = post_ids.join(",");
     let query = format!("post_id=in.({})&select=post_id", ids_str);
     
     if let Ok(likes) = state.supabase.select::<PostLikeMinimal>("post_likes", &query, token).await {
@@ -563,7 +563,8 @@ async fn get_post_comment_counts(
         return counts;
     }
 
-    let ids_str = post_ids.iter().map(|id| format!("\"{}\"", id)).collect::<Vec<_>>().join(",");
+    // SECURITY: UUIDs are already validated, no quotes needed for PostgREST in.() syntax
+    let ids_str = post_ids.join(",");
     let query = format!("post_id=in.({})&select=post_id", ids_str);
 
     if let Ok(comments) = state.supabase.select::<PostCommentMinimal>("post_comments", &query, token).await {
@@ -591,7 +592,8 @@ async fn get_user_post_likes(
         return liked;
     }
 
-    let ids_str = post_ids.iter().map(|id| format!("\"{}\"", id)).collect::<Vec<_>>().join(",");
+    // SECURITY: UUIDs are already validated, no quotes needed for PostgREST in.() syntax
+    let ids_str = post_ids.join(",");
     let query = format!("post_id=in.({})&user_id=eq.{}&select=post_id", ids_str, user_id);
 
     if let Ok(likes) = state.supabase.select::<PostLikeMinimal>("post_likes", &query, token).await {
@@ -1031,7 +1033,8 @@ async fn get_comment_like_counts(
         return counts;
     }
 
-    let ids_str = comment_ids.iter().map(|id| format!("\"{}\"", id)).collect::<Vec<_>>().join(",");
+    // SECURITY: UUIDs are already validated, no quotes needed for PostgREST in.() syntax
+    let ids_str = comment_ids.join(",");
     let query = format!("comment_id=in.({})&select=comment_id", ids_str);
     
     if let Ok(likes) = state.supabase.select::<CommentLikeMinimal>("comment_likes", &query, token).await {
@@ -1059,7 +1062,8 @@ async fn get_user_comment_likes(
         return liked;
     }
 
-    let ids_str = comment_ids.iter().map(|id| format!("\"{}\"", id)).collect::<Vec<_>>().join(",");
+    // SECURITY: UUIDs are already validated, no quotes needed for PostgREST in.() syntax
+    let ids_str = comment_ids.join(",");
     let query = format!("comment_id=in.({})&user_id=eq.{}&select=comment_id", ids_str, user_id);
     
     if let Ok(likes) = state.supabase.select::<CommentLikeMinimal>("comment_likes", &query, token).await {

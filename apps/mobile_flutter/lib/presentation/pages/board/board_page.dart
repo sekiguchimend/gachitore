@@ -793,6 +793,8 @@ class _BoardPageState extends ConsumerState<BoardPage> {
 
     // 投稿リスト + もっと見るボタン
     final itemCount = _posts.length + (_hasMore ? 1 : 0);
+    // パフォーマンス最適化: DateTime.now()を一度だけ呼び出し
+    final now = DateTime.now();
 
     return SliverList(
       delegate: SliverChildBuilderDelegate(
@@ -809,6 +811,7 @@ class _BoardPageState extends ConsumerState<BoardPage> {
               _PostTile(
                 post: post,
                 isOwn: isOwn,
+                currentTime: now,
                 onDelete: isOwn ? () => _deletePost(post) : null,
                 onImageTap: post.imageUrl != null ? () => _showImageViewer(post.imageUrl!) : null,
                 onAvatarTap: () => _openUserProfile(post),
@@ -887,6 +890,7 @@ class _BoardPageState extends ConsumerState<BoardPage> {
 class _PostTile extends StatelessWidget {
   final BoardPost post;
   final bool isOwn;
+  final DateTime currentTime;
   final VoidCallback? onDelete;
   final VoidCallback? onImageTap;
   final VoidCallback? onAvatarTap;
@@ -898,6 +902,7 @@ class _PostTile extends StatelessWidget {
   const _PostTile({
     required this.post,
     required this.isOwn,
+    required this.currentTime,
     this.onDelete,
     this.onImageTap,
     this.onAvatarTap,
@@ -908,7 +913,7 @@ class _PostTile extends StatelessWidget {
   String _formatDate(String isoDate) {
     try {
       final dt = DateTime.parse(isoDate).toLocal();
-      final now = DateTime.now();
+      final now = currentTime;
       final diff = now.difference(dt);
 
       if (diff.inMinutes < 1) {

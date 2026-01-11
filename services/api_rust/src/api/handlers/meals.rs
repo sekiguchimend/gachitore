@@ -398,29 +398,35 @@ pub async fn log_meal(
         if item.name.as_bytes().len() > 800 {
             return Err(AppError::Validation(format!("Item {} name exceeds byte limit", i + 1)));
         }
+        // SECURITY: Validate numeric ranges to prevent overflow, NaN, and data corruption
         if let Some(qty) = item.quantity {
-            if qty < 0.0 {
-                return Err(AppError::Validation(format!("Item {} quantity cannot be negative", i + 1)));
+            if qty < 0.0 || qty > 10000.0 || !qty.is_finite() {
+                return Err(AppError::Validation(format!("Item {} quantity out of range (0-10000)", i + 1)));
             }
         }
         if let Some(cal) = item.calories {
-            if cal < 0 {
-                return Err(AppError::Validation(format!("Item {} calories cannot be negative", i + 1)));
+            if cal < 0 || cal > 50000 {
+                return Err(AppError::Validation(format!("Item {} calories out of range (0-50000)", i + 1)));
             }
         }
         if let Some(protein) = item.protein_g {
-            if protein < 0.0 {
-                return Err(AppError::Validation(format!("Item {} protein cannot be negative", i + 1)));
+            if protein < 0.0 || protein > 1000.0 || !protein.is_finite() {
+                return Err(AppError::Validation(format!("Item {} protein out of range (0-1000g)", i + 1)));
             }
         }
         if let Some(fat) = item.fat_g {
-            if fat < 0.0 {
-                return Err(AppError::Validation(format!("Item {} fat cannot be negative", i + 1)));
+            if fat < 0.0 || fat > 1000.0 || !fat.is_finite() {
+                return Err(AppError::Validation(format!("Item {} fat out of range (0-1000g)", i + 1)));
             }
         }
         if let Some(carbs) = item.carbs_g {
-            if carbs < 0.0 {
-                return Err(AppError::Validation(format!("Item {} carbs cannot be negative", i + 1)));
+            if carbs < 0.0 || carbs > 1000.0 || !carbs.is_finite() {
+                return Err(AppError::Validation(format!("Item {} carbs out of range (0-1000g)", i + 1)));
+            }
+        }
+        if let Some(fiber) = item.fiber_g {
+            if fiber < 0.0 || fiber > 200.0 || !fiber.is_finite() {
+                return Err(AppError::Validation(format!("Item {} fiber out of range (0-200g)", i + 1)));
             }
         }
     }

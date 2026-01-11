@@ -617,7 +617,8 @@ pub async fn upload_avatar(
         return Err(AppError::BadRequest("file is too large (max 5MB)".to_string()));
     }
 
-    // Validate image format
+    // SECURITY: Validate image format using magic bytes (not client-provided Content-Type)
+    // This prevents file type mismatch attacks
     let (ext, content_type) = validate_avatar_image(&bytes)?;
 
     // Delete old avatar if exists

@@ -3,6 +3,9 @@ use axum::{
     routing::{delete, get, patch, post},
     Router,
 };
+use std::sync::Arc;
+use tower_governor::governor::GovernorConfigBuilder;
+use tower_governor::GovernorLayer;
 
 use crate::api::{handlers, middleware::auth_middleware};
 use crate::AppState;
@@ -35,13 +38,31 @@ async fn health_check() -> &'static str {
 }
 
 /// POST /v1/auth/* routes (no auth middleware)
+/// SECURITY: Strict rate limiting applied (5 req/s, burst 10) to prevent:
+/// - Brute force password attacks
+/// - Credential stuffing
+/// - Account enumeration
+/// - DoS via repeated auth attempts
 fn auth_routes() -> Router<AppState> {
+    // Configure strict rate limiting for auth endpoints
+    // 5 requests per second per IP with burst of 10
+    let auth_rate_limit = GovernorConfigBuilder::default()
+        .per_second(5)
+        .burst_size(10)
+        .finish()
+        .expect("Failed to create auth rate limiter config");
+
+    let auth_rate_limit_layer = GovernorLayer {
+        config: Arc::new(auth_rate_limit),
+    };
+
     Router::new()
         .route("/signup", post(handlers::signup))
         .route("/signin", post(handlers::signin))
         .route("/signout", post(handlers::signout))
         .route("/refresh", post(handlers::refresh_token))
         .route("/password/reset", post(handlers::reset_password))
+        .layer(auth_rate_limit_layer)
 }
 
 /// /v1/users/* routes (auth required)
@@ -106,12 +127,29 @@ fn log_routes(state: AppState) -> Router<AppState> {
 }
 
 /// POST /v1/ai/* routes (auth required)
+/// SECURITY: Strict rate limiting applied to AI endpoints to prevent:
+/// - API cost abuse (Gemini API charges per token)
+/// - Quota exhaustion
+/// - Financial DoS attacks
 fn ai_routes(state: AppState) -> Router<AppState> {
+    // Configure strict rate limiting for AI endpoints
+    // 10 requests per minute (0.167 req/s) per IP with burst of 2
+    let ai_rate_limit = GovernorConfigBuilder::default()
+        .per_second(1)  // Approximately 1 req per 6 seconds = 10/min
+        .burst_size(2)
+        .finish()
+        .expect("Failed to create AI rate limiter config");
+
+    let ai_rate_limit_layer = GovernorLayer {
+        config: Arc::new(ai_rate_limit),
+    };
+
     Router::new()
         .route("/ask", post(handlers::ask_ai))
         .route("/plan/today", post(handlers::plan_today))
         .route("/history", get(handlers::get_ai_history))
         .route("/inbox", get(handlers::get_ai_inbox))
+        .layer(ai_rate_limit_layer)
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 

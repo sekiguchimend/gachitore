@@ -82,6 +82,12 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Build CORS layer with restricted origins
+    // SECURITY (CSRF Protection): This API uses JWT Bearer authentication via Authorization header
+    // instead of cookies, which provides inherent CSRF protection because:
+    // 1. Browsers do not automatically send Authorization headers (unlike cookies)
+    // 2. Attackers cannot read/write the JWT token from a different origin
+    // 3. CORS policy below enforces allowed origins for cross-origin requests
+    // Therefore, traditional CSRF tokens are not required for this mobile API.
     let origins: Vec<_> = state
         .config
         .allowed_origins
@@ -96,14 +102,41 @@ async fn main() -> anyhow::Result<()> {
         .iter()
         .all(|o| o.contains("localhost") || o.contains("127.0.0.1"));
 
-    if is_localhost_only {
-        tracing::warn!(
-            "CORS is configured for localhost only. Set ALLOWED_ORIGINS environment variable for production."
-        );
+    let has_production_origin = state
+        .config
+        .allowed_origins
+        .iter()
+        .any(|o| !o.contains("localhost") && !o.contains("127.0.0.1"));
+
+    // SECURITY: Validate CORS configuration before starting server
+    if origins.is_empty() {
+        tracing::error!("CRITICAL: No valid CORS origins configured. API will reject all cross-origin requests.");
+        return Err(anyhow::anyhow!("Invalid CORS configuration: no valid origins"));
     }
 
-    if origins.is_empty() {
-        tracing::error!("No valid CORS origins configured. API will reject cross-origin requests.");
+    // Log detailed CORS configuration
+    tracing::info!("CORS configuration:");
+    tracing::info!("  - Allowed origins: {:?}", state.config.allowed_origins);
+    tracing::info!("  - Total valid origins: {}", origins.len());
+    tracing::info!("  - Localhost only: {}", is_localhost_only);
+    tracing::info!("  - Has production origins: {}", has_production_origin);
+
+    // Production environment check
+    let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
+    if environment == "production" && !has_production_origin {
+        tracing::error!(
+            "CRITICAL: Production environment detected but no production CORS origins configured!"
+        );
+        tracing::error!(
+            "Set ALLOWED_ORIGINS environment variable with production domains."
+        );
+        return Err(anyhow::anyhow!("Invalid CORS configuration for production"));
+    }
+
+    if is_localhost_only {
+        tracing::warn!(
+            "CORS is configured for localhost only. Set ALLOWED_ORIGINS for production deployment."
+        );
     }
 
     let cors = CorsLayer::new()
@@ -121,8 +154,6 @@ async fn main() -> anyhow::Result<()> {
             header::ACCEPT,
         ])
         .allow_credentials(true);
-
-    tracing::info!("CORS allowed origins: {:?}", state.config.allowed_origins);
 
     // Configure rate limiting
     // General API: 100 requests per second per IP
@@ -163,9 +194,24 @@ async fn main() -> anyhow::Result<()> {
             header::HeaderName::from_static("x-xss-protection"),
             HeaderValue::from_static("1; mode=block"),
         ))
+        // Content Security Policy: Lock down resources to prevent XSS
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'"),
+        ))
+        // HSTS: Force HTTPS for 1 year with subdomains
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000; includeSubDomains; preload"),
+        ))
+        // Permissions Policy: Disable sensitive browser features
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::HeaderName::from_static("permissions-policy"),
+            HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=()"),
+        ))
         .with_state(state);
 
-    tracing::info!("Security headers enabled: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, X-XSS-Protection");
+    tracing::info!("Security headers enabled: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, X-XSS-Protection, CSP, HSTS, Permissions-Policy");
 
     // Start server
     tracing::info!("Listening on {}", addr);
