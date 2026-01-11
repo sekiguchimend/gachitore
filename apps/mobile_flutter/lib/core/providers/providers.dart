@@ -9,6 +9,9 @@ import '../../data/services/board_service.dart';
 import '../../data/services/push_notification_service.dart';
 import '../../data/services/app_settings_service.dart';
 import '../../data/services/support_service.dart';
+import '../../data/services/subscription_service.dart';
+import '../../data/services/iap_service.dart';
+import '../../data/models/subscription_models.dart';
 
 // API client provider
 final apiClientProvider = Provider<ApiClient>((ref) {
@@ -84,4 +87,45 @@ final isAuthenticatedProvider = FutureProvider<bool>((ref) async {
 // Current user ID provider
 final currentUserIdProvider = FutureProvider<String?>((ref) async {
   return await ref.watch(authServiceProvider).currentUserId;
+});
+
+// Subscription service provider
+final subscriptionServiceProvider = Provider<SubscriptionService>((ref) {
+  return SubscriptionService(
+    apiClient: ref.watch(apiClientProvider),
+  );
+});
+
+// IAP service provider
+final iapServiceProvider = Provider<IapService>((ref) {
+  return IapService();
+});
+
+// Current user subscription provider
+final currentSubscriptionProvider = FutureProvider<UserSubscription?>((ref) async {
+  try {
+    return await ref.read(subscriptionServiceProvider).getMySubscription();
+  } catch (e) {
+    return null;
+  }
+});
+
+// Subscription tier provider - シンプルなFutureProviderに変更
+// StreamProviderは依存関係変更時に再起動してUIがバグるため使わない
+final subscriptionTierProvider = FutureProvider<SubscriptionTier>((ref) async {
+  try {
+    final subscription = await ref.read(subscriptionServiceProvider).getMySubscription();
+    return subscription?.tier ?? SubscriptionTier.free;
+  } catch (e) {
+    return SubscriptionTier.free;
+  }
+});
+
+// Blocked users provider
+final blockedUsersProvider = FutureProvider<List<String>>((ref) async {
+  try {
+    return await ref.watch(subscriptionServiceProvider).getBlockedUsers();
+  } catch (e) {
+    return [];
+  }
 });

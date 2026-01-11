@@ -55,6 +55,7 @@ tower_governor = "0.4"
 regex = "1"
 
 # Caching for signed URLs
+# Note: Pinned to avoid Rust 1.85+ requirement from newer async-lock versions
 moka = { version = "0.12", features = ["future"] }
 
 # Image processing (for thumbnail generation)

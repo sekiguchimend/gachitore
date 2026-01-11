@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +8,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/providers/providers.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/utils/chat_history_storage.dart';
+import '../../../data/models/subscription_models.dart';
 import '../../widgets/common/app_button.dart';
 import '../../widgets/settings/settings_tiles.dart';
 import '../../widgets/settings/picker_bottom_sheet.dart';
@@ -294,6 +296,72 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
   }
 
+  Widget _buildPlanTile() {
+    final subscriptionTierAsync = ref.watch(subscriptionTierProvider);
+    
+    // サブスクリプション機能はAndroid/iOSのみ対応（Web非対応）
+    final isMobilePlatform = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+         defaultTargetPlatform == TargetPlatform.iOS);
+
+    return subscriptionTierAsync.when(
+      data: (tier) {
+        final tierName = switch (tier) {
+          SubscriptionTier.free => '無料プラン',
+          SubscriptionTier.basic => 'ベーシックプラン',
+          SubscriptionTier.premium => 'プレミアムプラン',
+        };
+
+        if (isMobilePlatform) {
+          return SettingsTile(
+            icon: Icons.workspace_premium,
+            title: 'プラン変更',
+            subtitle: '現在: $tierName',
+            onTap: () => context.push('/subscription'),
+            iconColor: const Color(0xFFFFD700),
+          );
+        } else {
+          // Web版：プラン表示のみ（課金はモバイルアプリで）
+          return SettingsTile(
+            icon: Icons.workspace_premium,
+            title: '現在のプラン',
+            subtitle: tierName,
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('プラン変更はモバイルアプリから行えます'),
+                  backgroundColor: AppColors.greenPrimary,
+                ),
+              );
+            },
+            iconColor: const Color(0xFFFFD700),
+          );
+        }
+      },
+      loading: () => SettingsTile(
+        icon: Icons.workspace_premium,
+        title: isMobilePlatform ? 'プラン変更' : '現在のプラン',
+        subtitle: '読み込み中...',
+        onTap: isMobilePlatform ? () => context.push('/subscription') : () {},
+        iconColor: const Color(0xFFFFD700),
+      ),
+      error: (_, __) => SettingsTile(
+        icon: Icons.workspace_premium,
+        title: isMobilePlatform ? 'プラン変更' : '現在のプラン',
+        subtitle: '無料プラン',
+        onTap: isMobilePlatform ? () => context.push('/subscription') : () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('プラン変更はモバイルアプリから行えます'),
+              backgroundColor: AppColors.greenPrimary,
+            ),
+          );
+        },
+        iconColor: const Color(0xFFFFD700),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -383,6 +451,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     value: _notificationsEnabled,
                     onChanged: _onNotificationsChanged,
                   ),
+                ],
+              ),
+
+              // プラン変更
+              SettingsSection(
+                title: 'サブスクリプション',
+                children: [
+                  _buildPlanTile(),
                 ],
               ),
 

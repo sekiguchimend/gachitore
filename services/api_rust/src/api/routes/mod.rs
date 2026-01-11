@@ -25,6 +25,8 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         .nest("/posts", posts_routes(state.clone()))
         .nest("/comments", comments_routes(state.clone()))
         .nest("/support", support_routes(state.clone()))
+        .nest("/subscriptions", subscriptions_routes(state.clone()))
+        .nest("/blocks", blocks_routes(state.clone()))
 }
 
 /// Health check endpoint
@@ -53,8 +55,11 @@ fn users_routes(state: AppState) -> Router<AppState> {
             "/push-token",
             post(handlers::upsert_push_token).delete(handlers::delete_push_token),
         )
+        .route("/me/sns-links", post(handlers::update_sns_links))
+        .route("/me/online-status", post(handlers::update_online_status))
         .route("/:id/workout-dates", get(handlers::get_user_workout_dates))
         .route("/:id/meals/today", get(handlers::get_user_meals_today))
+        .route("/:id/sns-links", get(handlers::get_user_sns_links))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 
@@ -132,5 +137,21 @@ fn comments_routes(state: AppState) -> Router<AppState> {
 fn support_routes(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/contact", post(handlers::create_support_contact))
+        .route_layer(middleware::from_fn_with_state(state, auth_middleware))
+}
+
+/// /v1/subscriptions/* routes (auth required) - サブスクリプション管理
+fn subscriptions_routes(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/verify", post(handlers::verify_purchase))
+        .route("/me", get(handlers::get_my_subscription).delete(handlers::cancel_subscription))
+        .route_layer(middleware::from_fn_with_state(state, auth_middleware))
+}
+
+/// /v1/blocks/* routes (auth required) - ユーザーブロック機能
+fn blocks_routes(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/", get(handlers::get_blocked_users).post(handlers::block_user))
+        .route("/:blocked_user_id", delete(handlers::unblock_user))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }

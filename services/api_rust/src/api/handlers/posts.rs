@@ -68,6 +68,15 @@ pub async fn list_posts(
     let limit = q.limit.unwrap_or(50).clamp(1, 100);
     let offset = q.offset.unwrap_or(0).max(0);
 
+    // Get blocked user IDs (users that current user has blocked)
+    let blocked_query = format!("blocker_user_id=eq.{}&select=blocked_user_id", user.user_id);
+    let blocked_users: Vec<BlockedUserId> = state
+        .supabase
+        .select("user_blocks", &blocked_query, &user.token)
+        .await
+        .unwrap_or_default();
+    let blocked_ids: HashSet<String> = blocked_users.into_iter().map(|b| b.blocked_user_id).collect();
+
     // Fetch posts with user profile join (include avatar_path)
     let query = format!(
         "select=*,user_profiles(display_name,avatar_path)&order=created_at.desc&limit={}&offset={}",
@@ -78,6 +87,12 @@ pub async fn list_posts(
         .supabase
         .select("posts", &query, &user.token)
         .await?;
+
+    // Filter out posts from blocked users
+    let posts: Vec<PostWithProfile> = posts
+        .into_iter()
+        .filter(|p| !blocked_ids.contains(&p.user_id))
+        .collect();
 
     // Fetch like counts, comment counts, and user's likes for each post
     let post_ids: Vec<String> = posts.iter().map(|p| p.id.clone()).collect();
@@ -401,6 +416,11 @@ struct PostWithProfile {
 struct UserProfileMinimal {
     pub display_name: String,
     pub avatar_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BlockedUserId {
+    blocked_user_id: String,
 }
 
 /// Validate image format by checking magic bytes

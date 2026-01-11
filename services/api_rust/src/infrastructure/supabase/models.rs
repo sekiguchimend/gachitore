@@ -17,6 +17,8 @@ pub struct UserProfile {
     pub constraints: Option<serde_json::Value>,
     pub meals_per_day: Option<i32>,
     pub onboarding_completed: bool,
+    #[serde(default)]
+    pub sns_links: Option<serde_json::Value>, // Basic/Premium feature
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +110,33 @@ pub struct Post {
     pub user_id: String,
     pub content: String,
     pub image_path: Option<String>,
+    pub created_at: String,
+}
+
+/// ユーザーサブスクリプション
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserSubscription {
+    pub id: String,
+    pub user_id: String,
+    pub subscription_tier: String, // 'free', 'basic', 'premium'
+    pub platform: String,          // 'android', 'ios'
+    pub product_id: String,
+    pub purchase_token: Option<String>,
+    pub order_id: Option<String>,
+    pub starts_at: String,
+    pub expires_at: String,
+    pub auto_renewing: bool,
+    pub status: String, // 'active', 'cancelled', 'expired', 'pending'
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// ユーザーブロック
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserBlock {
+    pub id: String,
+    pub blocker_user_id: String,
+    pub blocked_user_id: String,
     pub created_at: String,
 }
 

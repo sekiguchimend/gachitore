@@ -12,6 +12,9 @@ import '../../presentation/pages/support/privacy_policy_page.dart';
 import '../../presentation/pages/support/support_contact_page.dart';
 import '../../presentation/pages/support/support_help_page.dart';
 import '../../presentation/pages/support/terms_of_service_page.dart';
+import '../../presentation/pages/subscription/subscription_page.dart';
+import '../../presentation/pages/subscription/sns_links_page.dart';
+import '../../presentation/pages/subscription/blocked_users_page.dart';
 import '../constants/app_colors.dart';
 import '../api/api_client.dart';
 import '../auth/secure_token_storage.dart';
@@ -148,6 +151,20 @@ class AppRouter {
       GoRoute(
         path: '/support/terms',
         builder: (context, state) => const TermsOfServicePage(),
+      ),
+
+      // Subscription routes (open from settings, hide bottom navigation)
+      GoRoute(
+        path: '/subscription',
+        builder: (context, state) => const SubscriptionPage(),
+      ),
+      GoRoute(
+        path: '/sns-links',
+        builder: (context, state) => const SnsLinksPage(),
+      ),
+      GoRoute(
+        path: '/blocked-users',
+        builder: (context, state) => const BlockedUsersPage(),
       ),
 
       // Main app shell with bottom navigation

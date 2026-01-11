@@ -1,5 +1,6 @@
 use axum::{
     extract::{rejection::JsonRejection, Multipart, State},
+    http::StatusCode,
     Extension, Json,
 };
 use chrono::Datelike;
@@ -793,4 +794,48 @@ pub async fn get_user_workout_dates(
     let dates: Vec<String> = workout_list.iter().map(|w| w.date.clone()).collect();
 
     Ok(Json(WorkoutDatesResponse { dates, workouts: workout_list, body_weight }))
+}
+
+// =============================================================================
+// Online Status (Premium Feature)
+// =============================================================================
+
+/// POST /v1/users/me/online-status
+/// Update user's online status (requires Premium subscription)
+#[derive(Debug, Deserialize)]
+pub struct UpdateOnlineStatusRequest {
+    pub is_online: bool,
+}
+
+pub async fn update_online_status(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
+    Json(req): Json<UpdateOnlineStatusRequest>,
+) -> AppResult<StatusCode> {
+    crate::api::validation::validate_uuid(&user.user_id)?;
+
+    // Check subscription tier (Premium required) - uses centralized check
+    crate::api::subscription_check::require_subscription(
+        &state,
+        &user.user_id,
+        &user.token,
+        crate::api::subscription_check::SubscriptionTier::Premium,
+        "オンライン状態の表示",
+    )
+    .await?;
+
+    // Update is_online and last_seen_at
+    let now = chrono::Utc::now().to_rfc3339();
+    let update_data = serde_json::json!({
+        "is_online": req.is_online,
+        "last_seen_at": now,
+    });
+
+    let query = format!("user_id=eq.{}", user.user_id);
+    state
+        .supabase
+        .update("user_profiles", &query, &update_data, &user.token)
+        .await?;
+
+    Ok(StatusCode::OK)
 }

@@ -286,6 +286,18 @@ pub async fn get_user_meals_today(
     // Validate target user_id
     let validated_user_id = validate_uuid(&target_user_id)?;
 
+    // Check if requesting user has permission (Basic or Premium subscription required to view other users' meals)
+    if validated_user_id.to_string() != user.user_id {
+        crate::api::subscription_check::require_subscription(
+            &state,
+            &user.user_id,
+            &user.token,
+            crate::api::subscription_check::SubscriptionTier::Basic,
+            "他のユーザーの食事メニュー閲覧",
+        )
+        .await?;
+    }
+
     // Get today's date in UTC
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
 

@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
 
+# Note: Using 1.83 for stability. Some newer dependencies require 1.85+
 FROM rust:1.83-bookworm AS builder
 WORKDIR /app
 

@@ -45,6 +45,7 @@ class SettingsTile extends StatelessWidget {
   final String title;
   final String? subtitle;
   final VoidCallback onTap;
+  final Color? iconColor;
 
   const SettingsTile({
     super.key,
@@ -52,6 +53,7 @@ class SettingsTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.iconColor,
   });
 
   @override
@@ -65,7 +67,7 @@ class SettingsTile extends StatelessWidget {
           children: [
             Icon(
               icon,
-              color: AppColors.textSecondary,
+              color: iconColor ?? AppColors.textSecondary,
               size: 22,
             ),
             const SizedBox(width: 16),
